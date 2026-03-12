@@ -1,11 +1,12 @@
 -- ZinaGearCompare.lua — Entry point del addon
--- Gestiona eventos globales y orquesta Scoring.lua + InspectUI.lua
+-- Motor independiente de Pawn. Requiere ZinaStatWeights, ZinaTierSets, ZinaContentDetector.
 
 local ADDON_NAME = "ZinaGearCompare"
 
 -- ── SavedVariables por defecto ───────────────────────────────────────────────
 local DB_DEFAULTS = {
-    version = 1,
+    version         = 2,
+    contentOverride = nil,  -- nil = auto-detect | "dungeon" | "raid"
 }
 
 -- ── Frame de eventos ─────────────────────────────────────────────────────────
@@ -14,32 +15,26 @@ local eventFrame = CreateFrame("Frame", ADDON_NAME .. "EventFrame")
 -- ── PaperDoll score text ──────────────────────────────────────────────────────
 local zgcPaperDollText = nil
 
-local function GetPlayerScaleAndScore()
-    local scale = ZGC_GetBestScaleForUnit("player")
-    if not scale then
-        -- Solo scales custom; si no hay ninguno, retorna nil
-        scale = next(ZGC_GetCustomScales())
-    end
-    if not scale then return nil, nil, nil end
-    local total, slots = ZGC_GetMyScore(scale)
-    return scale, total, slots
+local function GetPlayerScore()
+    local specID      = ZGC_GetSpecIDForUnit("player")
+    local specName    = ZGC_GetSpecNameForUnit("player")
+    local contentType = ZGC_GetContentType()
+    local total, slots = ZGC_GetWeightedScore("player", specID, contentType)
+    return specID, specName, total, slots, contentType
 end
 
 local function UpdatePaperDollScore()
     if not zgcPaperDollText then return end
-    if not PawnGetSingleValueFromItem then
-        zgcPaperDollText:SetText("")
-        return
-    end
-    local scale, total, slots = GetPlayerScaleAndScore()
-    if not scale then
-        zgcPaperDollText:SetText("|cffff8800ZGC: sin scales de Pawn|r")
+    local specID, specName, total, slots, contentType = GetPlayerScore()
+    if not specID then
+        zgcPaperDollText:SetText("|cffaaaaaa[ZGC] spec desconocida|r")
         return
     end
     if total and total > 0 then
+        local label = contentType == "raid" and "Raid" or "M+"
         zgcPaperDollText:SetText(string.format(
-            "|cff00aaffZGC Score:|r |cffffd700%.0f|r  |cffaaaaaa[%s  %d slots]|r",
-            total, scale, slots))
+            "|cff00aaffZGC Score:|r |cffffd700%.0f|r  |cffaaaaaa[%s · %s · %d slots]|r",
+            total, specName or "?", label, slots))
     else
         zgcPaperDollText:SetText("|cffaaaaaaZGC: calculando…|r")
     end
@@ -63,31 +58,50 @@ local function InitPaperDoll()
     end
 end
 
--- ── Fórmula de paridad de skill (WoW Midnight) ───────────────────────────────
--- gearRatio = su_score / mi_score
+-- ── Fórmula de paridad de skill ───────────────────────────────────────────────
+-- gearRatio = score_ellos / score_yo
 -- Devuelve el % de su daño que debes hacer tú para ser igual de hábil.
--- < 100% → ellos tienen más equipo, tú debes compensar con skill.
--- > 100% → tú tienes más equipo, deberías hacer más daño.
 local function ZGC_SkillParity(gearRatio)
     if not gearRatio or gearRatio <= 0 then return nil end
     return ((1 / gearRatio) ^ 2.0) * 100
 end
 
--- ── Mouseover inspection cache (score de otros jugadores en tooltip) ─────────
-local zgcMouseoverName    = nil
-local zgcMouseoverRealm   = nil
-local zgcMouseoverScore   = nil   -- nil = sin scale custom para esa spec
-local zgcMouseoverScale   = nil
-local zgcMouseoverGearRatio = nil  -- score_inspeccionado / mi_score (ratio crudo, no × 100)
-local zgcMouseoverReady   = false -- true cuando INSPECT_READY completó para el jugador actual
-local zgcMouseoverPending = false
-local zgcMouseoverWaiting = false
-local zgcPrintPending     = false -- true cuando /zgc compare espera INSPECT_READY
+-- ── Mouseover inspection cache ────────────────────────────────────────────────
+local zgcMouseoverName      = nil
+local zgcMouseoverRealm     = nil
+local zgcMouseoverScore     = nil
+local zgcMouseoverSpecName  = nil   -- nombre de spec para display (reemplaza scale name)
+local zgcMouseoverGearRatio = nil
+local zgcMouseoverReady     = false
+local zgcMouseoverPending   = false
+local zgcMouseoverWaiting   = false
+local zgcPrintPending       = false
 
 local function ZGC_GetMouseoverNameRealm()
     local n, r = UnitName("mouseover")
     if not r or r == "" then r = GetRealmName() end
     return n, r
+end
+
+-- ── Helper: inyectar score ZGC en GameTooltip ─────────────────────────────────
+local function ZGC_InjectMouseoverTooltip()
+    if not GameTooltip:IsVisible() then return end
+    if not UnitIsPlayer("mouseover") then return end
+    local tn, tr = ZGC_GetMouseoverNameRealm()
+    if tn ~= zgcMouseoverName or tr ~= zgcMouseoverRealm then return end
+    if GameTooltip.zgcScoreAdded then return end
+    GameTooltip.zgcScoreAdded = true
+    if zgcMouseoverScore and zgcMouseoverSpecName then
+        local parityStr = ""
+        local parity = ZGC_SkillParity(zgcMouseoverGearRatio)
+        if parity then
+            local col = parity <= 80 and "|cffff4444" or parity <= 100 and "|cffffd700" or "|cff00ff00"
+            parityStr = string.format("  %sskill≥%.0f%%|r", col, parity)
+        end
+        GameTooltip:AddLine(string.format("|cff00aaffZGC:|r |cffffd700%.0f|r |cffaaaaaa(%s)|r%s",
+            zgcMouseoverScore, zgcMouseoverSpecName, parityStr))
+        GameTooltip:Show()
+    end
 end
 
 local function ZGC_TryMouseoverInspect()
@@ -97,20 +111,79 @@ local function ZGC_TryMouseoverInspect()
     if zgcMouseoverPending then return end
     local n, r = ZGC_GetMouseoverNameRealm()
     if n == zgcMouseoverName and r == zgcMouseoverRealm then return end
-    -- Nuevo jugador: limpiar caché y pedir inspect
-    zgcMouseoverName  = nil
-    zgcMouseoverRealm = nil
+    zgcMouseoverName      = nil
+    zgcMouseoverRealm     = nil
     zgcMouseoverScore     = nil
-    zgcMouseoverScale     = nil
+    zgcMouseoverSpecName  = nil
     zgcMouseoverGearRatio = nil
     zgcMouseoverReady     = false
     zgcMouseoverPending   = true
     NotifyInspect("mouseover")
+    C_Timer.After(5, function()
+        if zgcMouseoverPending then
+            zgcMouseoverPending = false
+        end
+    end)
 end
 
+local function ZGC_CheckMouseover()
+    if zgcMouseoverWaiting or zgcMouseoverPending then return end
+    if not UnitIsPlayer("mouseover") then return end
+    local n, r = ZGC_GetMouseoverNameRealm()
+    if n == zgcMouseoverName and r == zgcMouseoverRealm then return end
+    zgcMouseoverReady     = false
+    zgcMouseoverScore     = nil
+    zgcMouseoverSpecName  = nil
+    zgcMouseoverGearRatio = nil
+    zgcMouseoverWaiting   = true
+    C_Timer.After(0.1, ZGC_TryMouseoverInspect)
+end
+
+-- ── GameTooltip hook ──────────────────────────────────────────────────────────
+local function HookGameTooltip()
+    if not TooltipDataProcessor then return end
+    TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(tooltip, data)
+        if not data or not data.guid then return end
+
+        -- Propio jugador
+        if data.guid == UnitGUID("player") then
+            local _, specName, total, _, contentType = GetPlayerScore()
+            if specName and total and total > 0 then
+                local label = contentType == "raid" and "Raid" or "M+"
+                tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffffd700%.0f|r |cffaaaaaa(%s · %s)|r",
+                    total, specName, label))
+            end
+            tooltip:Show()
+            return
+        end
+
+        -- Otro jugador: mostrar score cacheado
+        if not UnitIsPlayer("mouseover") then return end
+        if not zgcMouseoverReady then return end
+        local n, r = ZGC_GetMouseoverNameRealm()
+        if n ~= zgcMouseoverName or r ~= zgcMouseoverRealm then return end
+        tooltip.zgcScoreAdded = true
+        if zgcMouseoverScore and zgcMouseoverSpecName then
+            local parityStr = ""
+            local parity = ZGC_SkillParity(zgcMouseoverGearRatio)
+            if parity then
+                local col = parity <= 80 and "|cffff4444" or parity <= 100 and "|cffffd700" or "|cff00ff00"
+                parityStr = string.format("  %sskill≥%.0f%%|r", col, parity)
+            end
+            tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffffd700%.0f|r |cffaaaaaa(%s)|r%s",
+                zgcMouseoverScore, zgcMouseoverSpecName, parityStr))
+            tooltip:Show()
+        end
+    end)
+end
+GameTooltip:HookScript("OnTooltipCleared", function(self)
+    self.zgcScoreAdded = false
+end)
+GameTooltip:HookScript("OnHide", function(self)
+    self.zgcScoreAdded = false
+end)
+
 -- ── Integración con Details! ──────────────────────────────────────────────────
--- Devuelve { myDmg, theirDmg, combatTime, segName } si ambos están en el mismo
--- segmento, o nil si Details no está instalado o no hay datos comunes.
 local function ZGC_GetDetailsComparison(myName, targetName)
     if not _G.Details then return nil end
 
@@ -118,7 +191,6 @@ local function ZGC_GetDetailsComparison(myName, targetName)
         if not combat then return nil end
         local myActor    = combat:GetActor(DETAILS_ATTRIBUTE_DAMAGE, myName)
         local theirActor = combat:GetActor(DETAILS_ATTRIBUTE_DAMAGE, targetName)
-        -- Fallback: iterar por GetOnlyName() por si el nombre incluye realm
         if not myActor or not theirActor then
             local container = combat:GetContainer(DETAILS_ATTRIBUTE_DAMAGE)
             if not container then return nil end
@@ -145,71 +217,10 @@ local function ZGC_GetDetailsComparison(myName, targetName)
         or findBothInCombat(Details:GetCombat(1))
 end
 
-local function ZGC_CheckMouseover()
-    if zgcMouseoverWaiting or zgcMouseoverPending then return end
-    if not UnitIsPlayer("mouseover") then return end
-    local n, r = ZGC_GetMouseoverNameRealm()
-    if n == zgcMouseoverName and r == zgcMouseoverRealm then return end
-    -- Debounce 0.1s para evitar inspeccionar al "pasar el cursor"
-    zgcMouseoverWaiting = true
-    C_Timer.After(0.1, ZGC_TryMouseoverInspect)
-end
-
--- ── GameTooltip hook (score del propio jugador) ───────────────────────────────
--- OnTooltipSetUnit fue eliminado en Dragonflight+; usar TooltipDataProcessor.
-local function HookGameTooltip()
-    if not TooltipDataProcessor then return end
-    TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(tooltip, data)
-        if not data or not data.guid then return end
-        if data.guid ~= UnitGUID("player") then return end
-        if not PawnGetSingleValueFromItem then return end
-        local scale, total = GetPlayerScaleAndScore()
-        if scale and total and total > 0 then
-            tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffffd700%.0f|r |cffaaaaaa(%s)|r",
-                total, scale))
-        else
-            tooltip:AddLine("|cff00aaffZGC:|r |cffaaaaaa(pendiente)|r")
-        end
-        tooltip:Show()
-    end)
-end
-
--- Hook OnUpdate: añadir score ZGC al tooltip del jugador bajo el cursor
-GameTooltip:HookScript("OnUpdate", function(self)
-    if self.zgcScoreAdded then return end          -- primera barrera: boolean local, ~ns
-    if not UnitIsPlayer("mouseover") then return end
-    if not zgcMouseoverReady then return end
-    local n, r = ZGC_GetMouseoverNameRealm()
-    if n ~= zgcMouseoverName or r ~= zgcMouseoverRealm then return end
-    self.zgcScoreAdded = true
-    if zgcMouseoverScore and zgcMouseoverScale then
-        local parityStr = ""
-        local parity = ZGC_SkillParity(zgcMouseoverGearRatio)
-        if parity then
-            -- < 100%: ellos tienen más equipo (debes compensar con skill)
-            -- > 100%: tú tienes más equipo (deberías hacer más daño)
-            local col = parity <= 80 and "|cffff4444" or parity <= 100 and "|cffffd700" or "|cff00ff00"
-            parityStr = string.format("  %sskill≥%.0f%%|r", col, parity)
-        end
-        self:AddLine(string.format("|cff00aaffZGC:|r |cffffd700%.0f|r |cffaaaaaa(%s)|r%s",
-            zgcMouseoverScore, zgcMouseoverScale, parityStr))
-    else
-        self:AddLine("|cff00aaffZGC:|r |cffaaaaaa(pendiente)|r")
-    end
-    self:Show()
-end)
-GameTooltip:HookScript("OnTooltipCleared", function(self)
-    self.zgcScoreAdded = false
-end)
-GameTooltip:HookScript("OnHide", function(self)
-    self.zgcScoreAdded = false
-end)
-
 -- ── ADDON_LOADED ─────────────────────────────────────────────────────────────
 local function OnAddonLoaded(addonName)
     if addonName ~= ADDON_NAME then return end
 
-    -- Inicializar SavedVariables
     if not ZinaGearCompareDB then
         ZinaGearCompareDB = {}
     end
@@ -219,39 +230,34 @@ local function OnAddonLoaded(addonName)
         end
     end
 
-    -- Inicializar módulo de UI (hooks al InspectFrame)
     ZGC_InitUI()
-
-    -- Inicializar score en character frame
     InitPaperDoll()
-
-    -- Hook de tooltip del propio jugador
     pcall(HookGameTooltip)
 
-    -- Avisar en chat si Pawn no está instalado
-    if not PawnGetSingleValueFromItem then
-        print("|cffff8800[ZinaGearCompare]|r Pawn no está instalado. " ..
-              "El score de calidad de equipo no estará disponible.")
+    local specID   = ZGC_GetSpecIDForUnit("player")
+    local specName = ZGC_GetSpecNameForUnit("player") or "desconocida"
+    if specID and ZGC_StatWeights and ZGC_StatWeights[specID] then
+        print(string.format("|cff00aaff[ZinaGearCompare]|r cargado. Spec: %s. " ..
+              "Abre el personaje o inspecciona a alguien para ver Gear Quality.",
+              specName))
     else
-        print("|cff00aaff[ZinaGearCompare]|r cargado. Pawn detectado. " ..
-              "Inspecciona a un jugador para ver su Gear Quality.")
+        print("|cff00aaff[ZinaGearCompare]|r cargado. " ..
+              "(Spec no detectada aún — abre el panel de personaje para actualizar.)")
     end
 end
 
--- ── INSPECT_READY / UNIT_INSPECTED ───────────────────────────────────────────
--- En Retail se usa INSPECT_READY; se registra también UNIT_INSPECTED como fallback.
+-- ── INSPECT_READY ─────────────────────────────────────────────────────────────
 local pendingUnit = nil
 
 local function OnInspectReady(unit)
-    -- 'unit' puede ser nil en algunos builds; usar pendingUnit como fallback
     local target = unit or pendingUnit
     if not target then return end
-    if not InspectFrame or not InspectFrame:IsShown() then return end
-    ZGC_OnInspectReady(target)
+    if InspectFrame and InspectFrame:IsShown() then
+        ZGC_OnInspectReady(target)
+    end
 end
 
 -- ── PLAYER_EQUIPMENT_CHANGED ─────────────────────────────────────────────────
--- Recalcular el score propio cuando el jugador cambia de equipo.
 local function OnPlayerEquipmentChanged()
     if InspectFrame and InspectFrame:IsShown() then
         ZGC_UpdatePanel()
@@ -259,13 +265,12 @@ local function OnPlayerEquipmentChanged()
     UpdatePaperDollScore()
 end
 
--- ── Dispatcher de eventos ────────────────────────────────────────────────────
+-- ── Dispatcher de eventos ─────────────────────────────────────────────────────
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
         OnAddonLoaded(...)
 
     elseif event == "INSPECT_READY" then
-        -- INSPECT_READY ahora pasa un GUID en Midnight; resolver a unit token.
         local guid = ...
         local unit = nil
         for _, u in ipairs({"target", "mouseover", "focus", "party1", "party2", "party3", "party4"}) do
@@ -275,61 +280,81 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             end
         end
         pendingUnit = unit or pendingUnit
-        OnInspectReady(unit or pendingUnit)  -- no-op si InspectFrame no está abierto
+        OnInspectReady(unit or pendingUnit)
 
-        -- Path de mouseover: calcular score con scale custom del jugador bajo el cursor
+        -- Path de mouseover
         if zgcMouseoverPending then
             zgcMouseoverPending = false
             if UnitIsPlayer("mouseover") and UnitGUID("mouseover") == guid then
                 local n, r = ZGC_GetMouseoverNameRealm()
                 zgcMouseoverName  = n
                 zgcMouseoverRealm = r
-                zgcMouseoverScore     = nil
-                zgcMouseoverScale     = nil
-                zgcMouseoverGearRatio = nil
-                zgcMouseoverReady     = true
-                -- Calcular score solo si hay un scale custom para su spec
-                if PawnGetSingleValueFromItem then
-                    local scale = ZGC_GetBestScaleForUnit("mouseover")
-                    if scale then
-                        local total = ZGC_GetWeightedScore("mouseover", scale)
-                        if total and total > 0 then
-                            zgcMouseoverScore = total
-                            zgcMouseoverScale = scale
-                            -- gearRatio crudo: su_score / mi_score (con mi propio scale)
-                            local _, myTotal = GetPlayerScaleAndScore()
-                            if myTotal and myTotal > 0 then
-                                zgcMouseoverGearRatio = total / myTotal
-                            end
+                local specID      = ZGC_GetSpecIDForUnit("mouseover")
+                local specName    = ZGC_GetSpecNameForUnit("mouseover")
+                local contentType = ZGC_GetContentType()
+                if specID then
+                    local total, slotsScored = ZGC_GetWeightedScore("mouseover", specID, contentType)
+                    if total and total > 0 then
+                        zgcMouseoverScore    = total
+                        zgcMouseoverSpecName = specName
+                        -- Ratio: comparar con misma spec/contentType del jugador local
+                        local mySpecID   = ZGC_GetSpecIDForUnit("player")
+                        local myTotal    = ZGC_GetWeightedScore("player", mySpecID, contentType)
+                        if myTotal and myTotal > 0 then
+                            zgcMouseoverGearRatio = total / myTotal
                         end
                     end
+                    -- Retry si pocos slots
+                    if slotsScored < 8 then
+                        C_Timer.After(1.5, function()
+                            if zgcMouseoverName ~= n then return end
+                            if not UnitIsPlayer("mouseover") then return end
+                            local retryTotal, retrySlotsScored = ZGC_GetWeightedScore("mouseover", specID, contentType)
+                            if retryTotal and retryTotal > 0 and retrySlotsScored > slotsScored then
+                                zgcMouseoverScore = retryTotal
+                                local mySpecID2 = ZGC_GetSpecIDForUnit("player")
+                                local myTotal2  = ZGC_GetWeightedScore("player", mySpecID2, contentType)
+                                if myTotal2 and myTotal2 > 0 then
+                                    zgcMouseoverGearRatio = retryTotal / myTotal2
+                                end
+                                ZGC_InjectMouseoverTooltip()
+                            end
+                        end)
+                    end
                 end
+                zgcMouseoverReady = true
+                ZGC_InjectMouseoverTooltip()
             end
         end
 
-        -- Path de /zgc compare: imprimir en chat el resultado del inspect del target
+        -- Path de /zgc compare
         if zgcPrintPending then
             zgcPrintPending = false
-            local unit = nil
+            local cmpUnit = nil
             for _, u in ipairs({"target", "mouseover", "focus"}) do
-                if UnitGUID(u) == guid then unit = u; break end
+                if UnitGUID(u) == guid then cmpUnit = u; break end
             end
-            if unit then
-                local name = UnitName(unit) or "?"
-                local scale = PawnGetSingleValueFromItem and ZGC_GetBestScaleForUnit(unit)
-                if not scale then
-                    print(string.format("|cff00aaff[ZinaGearCompare]|r %s — |cffaaaaaa(pendiente: sin scale custom para esta spec)|r", name))
+            if cmpUnit then
+                local name       = UnitName(cmpUnit) or "?"
+                local specID     = ZGC_GetSpecIDForUnit(cmpUnit)
+                local specName   = ZGC_GetSpecNameForUnit(cmpUnit)
+                local cType      = ZGC_GetContentType()
+                if not specID then
+                    print(string.format("|cff00aaff[ZinaGearCompare]|r %s — |cffaaaaaa(spec desconocida, datos incompletos)|r", name))
                 else
-                    local total = ZGC_GetWeightedScore(unit, scale)
-                    local myScale, myTotal = GetPlayerScaleAndScore()
+                    local total, slots = ZGC_GetWeightedScore(cmpUnit, specID, cType)
+                    local mySpecID     = ZGC_GetSpecIDForUnit("player")
+                    local mySpecName   = ZGC_GetSpecNameForUnit("player")
+                    local myTotal, mySlots = ZGC_GetWeightedScore("player", mySpecID, cType)
                     if total and total > 0 then
-                        print(string.format("|cff00aaff[ZinaGearCompare]|r %s — ZGC: |cffffd700%.0f|r |cffaaaaaa(%s)|r",
-                            name, total, scale))
-                        if myScale and myTotal and myTotal > 0 then
+                        local label = cType == "raid" and "Raid" or "M+"
+                        print(string.format("|cff00aaff[ZinaGearCompare]|r %s — ZGC: |cffffd700%.0f|r |cffaaaaaa(%s · %s)|r",
+                            name, total, specName or "?", label))
+                        if myTotal and myTotal > 0 then
                             local gearRatio = total / myTotal
                             local parity    = ZGC_SkillParity(gearRatio)
-                            print(string.format("  |cffaaaaaa  Mi score: %.0f (%s)   Su equipo vs el mío: %.0f%%|r",
-                                myTotal, myScale, gearRatio * 100))
+                            print(string.format("  |cffaaaaaa  Mi score: %.0f (%s · %s)   Gear ratio: %.0f%%|r",
+                                myTotal, mySpecName or "?", label, gearRatio * 100))
                             if parity then
                                 local parityCol = gearRatio > 1 and "|cffffd700" or "|cff00ff00"
                                 if gearRatio ~= 1 then
@@ -346,7 +371,6 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                                     print("  |cffaaaaaa→ Equipo equivalente. La diferencia es pura habilidad.|r")
                                 end
 
-                                -- Integración con Details! (si está instalado y hay datos)
                                 local myPlayerName = UnitName("player")
                                 local det = ZGC_GetDetailsComparison(myPlayerName, name)
                                 if det and det.theirDmg > 0 then
@@ -356,16 +380,12 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                                     local sign        = delta_pp >= 0 and "+" or ""
                                     local col         = delta_pp >= 0 and "|cff00ff00" or "|cffff4444"
                                     local arrow       = delta_pp >= 0 and "↑" or "↓"
-                                    print(string.format(
-                                        "  |cffaaaaaa[Details! · %s]|r", det.segName))
-                                    print(string.format(
-                                        "  |cffaaaaaa  Tu daño: %.0f   Su daño: %.0f|r",
+                                    print(string.format("  |cffaaaaaa[Details! · %s]|r", det.segName))
+                                    print(string.format("  |cffaaaaaa  Tu daño: %.0f   Su daño: %.0f|r",
                                         det.myDmg, det.theirDmg))
-                                    print(string.format(
-                                        "  |cffaaaaaa  Ratio actual: %.1f%% de su daño   Esperado por gear: %.1f%%|r",
+                                    print(string.format("  |cffaaaaaa  Ratio actual: %.1f%% de su daño   Esperado: %.1f%%|r",
                                         actualRatio, parity))
-                                    print(string.format(
-                                        "  %s→ %s%.1fpp %s (%.1f%% %s lo esperado por equipo)|r",
+                                    print(string.format("  %s→ %s%.1fpp %s (%.1f%% %s lo esperado por equipo)|r",
                                         col, sign, delta_pp, arrow,
                                         math.abs(relDelta),
                                         delta_pp >= 0 and "sobre" or "bajo"))
@@ -388,43 +408,34 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         OnPlayerEquipmentChanged()
 
     elseif event == "PLAYER_TARGET_CHANGED" then
-        -- Guardar la unit objetivo para usarla en INSPECT_READY si es necesario
         if UnitExists("target") and UnitIsPlayer("target") then
             pendingUnit = "target"
         else
             pendingUnit = nil
         end
+
+    elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
+        UpdatePaperDollScore()
     end
 end)
 
--- ── Registro de eventos ──────────────────────────────────────────────────────
+-- ── Registro de eventos ───────────────────────────────────────────────────────
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("INSPECT_READY")
 eventFrame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 
--- ── Slash command ─────────────────────────────────────────────────────────────
+-- ── Slash commands ────────────────────────────────────────────────────────────
 SLASH_ZINAGEARCOMPARE1 = "/zgc"
 SlashCmdList["ZINAGEARCOMPARE"] = function(msg)
-    msg = msg:lower():match("^%s*(.-)%s*$")  -- trim
+    msg = msg:lower():match("^%s*(.-)%s*$")
 
     if msg == "reset" then
         ZinaGearCompareDB = {}
         for k, v in pairs(DB_DEFAULTS) do ZinaGearCompareDB[k] = v end
         print("|cff00aaff[ZinaGearCompare]|r Base de datos reseteada.")
-
-    elseif msg == "scales" then
-        local scales = ZGC_GetAvailableScales()
-        local count = 0
-        print("|cff00aaff[ZinaGearCompare]|r Scales de Pawn disponibles:")
-        for name in pairs(scales) do
-            print("  -", name)
-            count = count + 1
-        end
-        if count == 0 then
-            print("  (ninguno — ¿Pawn está instalado?)")
-        end
 
     elseif msg == "compare" then
         if not UnitIsPlayer("target") then
@@ -437,50 +448,79 @@ SlashCmdList["ZINAGEARCOMPARE"] = function(msg)
         NotifyInspect("target")
 
     elseif msg == "score" or msg == "myscore" then
-        -- Usar el scale de la spec actual del jugador; fallback al primero disponible
-        local scale, total, slots = GetPlayerScaleAndScore()
-        if not scale then
-            print("|cffff8800[ZinaGearCompare]|r Sin scales de Pawn disponibles.")
+        local specID, specName, total, slots, cType = GetPlayerScore()
+        if not specID then
+            print("|cffff8800[ZinaGearCompare]|r Spec no detectada. Abre el panel de personaje.")
             return
         end
+        local label = cType == "raid" and "Raid" or "M+"
+        local tierCount = ZGC_CountTierPieces and ZGC_CountTierPieces("player") or 0
         print(string.format(
-            "|cff00aaff[ZinaGearCompare]|r Mi score: |cffffd700%.0f|r total | %d slots | Scale: %s",
-            total, slots, scale))
+            "|cff00aaff[ZinaGearCompare]|r Mi score: |cffffd700%.0f|r | %d slots | %s | %s | Tier: %dpc",
+            total, slots, specName or "?", label, tierCount))
+
+    elseif msg:match("^mode%s+") then
+        local mode = msg:match("^mode%s+(%S+)")
+        if mode == "auto" then
+            ZinaGearCompareDB.contentOverride = nil
+            print("|cff00aaff[ZinaGearCompare]|r Modo: |cffaaaaaaauto-detección|r")
+        elseif mode == "dungeon" or mode == "m+" then
+            ZinaGearCompareDB.contentOverride = "dungeon"
+            print("|cff00aaff[ZinaGearCompare]|r Modo forzado: |cffaad4ffM+|r")
+        elseif mode == "raid" then
+            ZinaGearCompareDB.contentOverride = "raid"
+            print("|cff00aaff[ZinaGearCompare]|r Modo forzado: |cffFFD700Raid|r")
+        else
+            print("|cffff8800[ZinaGearCompare]|r Uso: /zgc mode auto|dungeon|raid")
+        end
+        UpdatePaperDollScore()
+        if InspectFrame and InspectFrame:IsShown() then ZGC_UpdatePanel() end
 
     elseif msg == "debug" then
         print("|cff00aaff[ZinaGearCompare]|r === DEBUG ===")
-        print("  Addon version: 1 | Interface: Midnight 12.x")
         local ok, err = pcall(function()
-            -- Pawn disponible?
-            print("  PawnGetSingleValueFromItem:", PawnGetSingleValueFromItem ~= nil and "OK" or "NO EXISTE")
-            print("  PawnGetItemData:", PawnGetItemData ~= nil and "OK" or "NO EXISTE")
-            print("  PawnCommon:", PawnCommon ~= nil and "OK" or "NO EXISTE")
-            -- Scales
-            local scales = ZGC_GetAvailableScales()
-            local count = 0
-            for _ in pairs(scales) do count = count + 1 end
-            print("  Scales disponibles:", count)
-            if count > 0 and count <= 5 then
-                for n in pairs(scales) do print("    -", n) end
-            end
+            -- Content type
+            local detected = ZGC_DetectContentType()
+            local override = ZinaGearCompareDB and ZinaGearCompareDB.contentOverride
+            print(string.format("  Tipo de contenido: %s  (detectado: %s, override: %s)",
+                ZGC_GetContentType(), detected, tostring(override)))
+
             -- Spec
-            local specID = GetSpecialization and GetSpecialization()
-            local classID = select(3, UnitClass("player"))
-            print("  SpecID:", specID, "  ClassID:", classID)
-            local bestScale = ZGC_GetBestScaleForUnit("player")
-            print("  Scale autodetectado:", bestScale or "(ninguno)")
-            -- Test de item
-            local testLink = GetInventoryItemLink("player", 1)  -- Head slot
+            local specID   = ZGC_GetSpecIDForUnit("player")
+            local specName = ZGC_GetSpecNameForUnit("player")
+            print(string.format("  SpecID: %s  Spec: %s", tostring(specID), tostring(specName)))
+
+            -- Pesos disponibles
+            local hasWeights = specID and ZGC_StatWeights and ZGC_StatWeights[specID]
+            print("  Pesos en ZGC_StatWeights:", hasWeights and "OK" or "NO ENCONTRADOS")
+
+            -- Tier
+            local tierCount = ZGC_CountTierPieces and ZGC_CountTierPieces("player") or 0
+            local tierMult  = specID and ZGC_GetTierMultiplier and ZGC_GetTierMultiplier("player", specID) or 1.0
+            print(string.format("  Tier pieces: %d   Multiplicador: %.2fx", tierCount, tierMult))
+
+            -- Score
+            local total, slots = ZGC_GetWeightedScore("player", specID, ZGC_GetContentType())
+            print(string.format("  Score: %.0f  Slots valorados: %d/%d", total, slots, ZGC_EQUIP_SLOT_COUNT))
+
+            -- Test C_Item.GetItemStats API
+            local apiOk = C_Item and C_Item.GetItemStats ~= nil
+            print("  C_Item.GetItemStats existe:", apiOk and "SI" or "NO")
+            local testLink = GetInventoryItemLink("player", 1)
+                          or GetInventoryItemLink("player", 5)
             if testLink then
-                print("  Item de prueba (slot 1):", testLink)
-                local itemData = PawnGetItemData and PawnGetItemData(testLink)
-                print("  PawnGetItemData result:", itemData ~= nil and "OK (table)" or "nil")
-                if itemData and bestScale then
-                    local v = PawnGetSingleValueFromItem(itemData, bestScale)
-                    print("  PawnGetSingleValueFromItem:", v)
+                print("  Item de prueba (slot 1/5):", testLink)
+                if ZGC_DiagnoseStatKeys then
+                    print("  Diagnóstico stats:", ZGC_DiagnoseStatKeys(testLink))
+                end
+                if specID and ZGC_StatWeights and ZGC_StatWeights[specID] then
+                    local w  = ZGC_StatWeights[specID]
+                    local ct = ZGC_GetContentType()
+                    local itemScore = ZGC_ScoreItem(testLink, w[ct] or w.dungeon, w.primaryStat)
+                    print("  Score del item:", itemScore and string.format("%.1f", itemScore) or "nil")
                 end
             else
-                print("  Slot 1 (cabeza): vacío")
+                print("  Slots 1 y 5 vacíos")
             end
         end)
         if not ok then
@@ -489,11 +529,12 @@ SlashCmdList["ZINAGEARCOMPARE"] = function(msg)
 
     else
         print("|cff00aaff[ZinaGearCompare]|r Comandos disponibles:")
-        print("  /zgc compare  — compara el equipo de tu target contra el tuyo (imprime en chat)")
-        print("  /zgc scales   — lista los scales de Pawn disponibles")
-        print("  /zgc score    — muestra tu score actual")
-        print("  /zgc myscore  — alias de /zgc score")
-        print("  /zgc debug    — diagnóstico (qué ve el addon)")
-        print("  /zgc reset    — resetea la base de datos del addon")
+        print("  /zgc compare        — compara el equipo de tu target contra el tuyo")
+        print("  /zgc score          — muestra tu score actual")
+        print("  /zgc mode auto      — auto-detectar tipo de contenido")
+        print("  /zgc mode dungeon   — forzar pesos de M+")
+        print("  /zgc mode raid      — forzar pesos de Raid")
+        print("  /zgc debug          — diagnóstico completo")
+        print("  /zgc reset          — resetea la base de datos del addon")
     end
 end

@@ -1,14 +1,16 @@
 ## Interface: 110005, 120001
 ## Title: ZinaGearCompare
-## Notes: Compares gear quality between players using Pawn stat weights. Shows scores in tooltips and inspect frame.
-## Version: 1.0.0
+## Notes: Compares gear quality between players using built-in stat weights. No dependencies required.
+## Version: 2.0.1
 ## Author: Zina
 ## X-Website: https://github.com/tichondrius808/ZinaGearCompare
 ## X-License: MIT
 ## X-Curse-Project-ID: 1484069
-## OptionalDeps: Pawn
 ## SavedVariables: ZinaGearCompareDB
 
+ZinaStatWeights.lua
+ZinaTierSets.lua
+ZinaContentDetector.lua
 Scoring.lua
 InspectUI.lua
 ZinaGearCompare.lua
