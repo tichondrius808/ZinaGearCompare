@@ -3,7 +3,9 @@
 ## Notes: Compares gear quality between players using Pawn stat weights. Shows scores in tooltips and inspect frame.
 ## Version: 1.0.0
 ## Author: Zina
+## X-Website: https://github.com/tichondrius808/ZinaGearCompare
 ## X-License: MIT
+## X-Curse-Project-ID: 0
 ## OptionalDeps: Pawn
 ## SavedVariables: ZinaGearCompareDB
 
