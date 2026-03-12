@@ -1,0 +1,14 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# WoW saved variables (never commit player data)
+*.lua.bak
+
+# Packager output
+.release/
