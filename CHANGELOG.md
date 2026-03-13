@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-03-13
+
+### Added
+- `tools/run_simc_all.bat` — runs SimulationCraft on all available MID1 profiles
+  (Patchwerk + DungeonSlice) and outputs JSON scale factors per spec.
+- `tools/simc_to_lua.py` — reads SimC JSONs, normalizes scale factors to `primary=1.0`,
+  and regenerates `ZinaStatWeights.lua` automatically.
+
+### Changed
+- **Stat weights**: 20 specs updated with real SimulationCraft data (MID1 profiles,
+  10 000 iterations). Several specs had significantly wrong secondary weights, most
+  notably Vers for specs like Feral Druid, Fire Mage, and Outlaw Rogue.
+- **SkillParity exponent**: changed from 2.0 to 1.2, giving more realistic parity
+  targets (e.g. 20% gear gap → 85.1% required DPS instead of the previous 69.4%).
+- **`/zgc compare` output**: condensed from 7 lines to 3–4 lines. Prefix shortened
+  from `[ZinaGearCompare]` to `[ZGC]` in this command.
+
+## [2.0.1] - 2026-03-12
+
+### Added
+- Independent scoring engine (`Scoring.lua`) — no longer depends on Pawn.
+- `ZinaStatWeights.lua` — built-in stat weights for all specs, separated by
+  M+ (DungeonSlice) and Raid (Patchwerk) content types.
+- `ZinaTierSets.lua` — tier set score bonuses (2pc/4pc multipliers) per spec.
+- `ZinaContentDetector.lua` — auto-detects whether the player is in a dungeon or raid.
+- Spec name display (replaces Pawn scale name) in all UI elements.
+
+### Fixed
+- Taint error on `INSPECT_READY` caused by GUID comparison in combat.
+
+### Removed
+- Pawn dependency. The addon now ships its own weights and works standalone.
+
 ## [1.0.0] - 2026-03-12
 
 ### Added
