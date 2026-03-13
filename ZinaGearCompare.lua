@@ -118,6 +118,7 @@ local function ZGC_TryMouseoverInspect()
     zgcMouseoverGearRatio = nil
     zgcMouseoverReady     = false
     zgcMouseoverPending   = true
+    pendingInspectUnit    = "mouseover"
     NotifyInspect("mouseover")
     C_Timer.After(5, function()
         if zgcMouseoverPending then
@@ -247,7 +248,8 @@ local function OnAddonLoaded(addonName)
 end
 
 -- ── INSPECT_READY ─────────────────────────────────────────────────────────────
-local pendingUnit = nil
+local pendingUnit        = nil
+local pendingInspectUnit = nil  -- unit pasada a NotifyInspect(); evita comparar guid tainted (12.0+)
 
 local function OnInspectReady(unit)
     local target = unit or pendingUnit
@@ -271,21 +273,20 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         OnAddonLoaded(...)
 
     elseif event == "INSPECT_READY" then
-        local guid = ...
-        local unit = nil
-        for _, u in ipairs({"target", "mouseover", "focus", "party1", "party2", "party3", "party4"}) do
-            if UnitGUID(u) == guid then
-                unit = u
-                break
-            end
+        -- No leer guid del evento: en 12.0+ es "secret string" (tainted) y compararlo
+        -- con UnitGUID() (clean) genera taint. Usamos pendingInspectUnit que guardamos
+        -- antes de llamar NotifyInspect().
+        local unit = pendingInspectUnit or pendingUnit
+        pendingInspectUnit = nil
+        if unit then
+            pendingUnit = unit
         end
-        pendingUnit = unit or pendingUnit
         OnInspectReady(unit or pendingUnit)
 
         -- Path de mouseover
         if zgcMouseoverPending then
             zgcMouseoverPending = false
-            if UnitIsPlayer("mouseover") and UnitGUID("mouseover") == guid then
+            if UnitIsPlayer("mouseover") then
                 local n, r = ZGC_GetMouseoverNameRealm()
                 zgcMouseoverName  = n
                 zgcMouseoverRealm = r
@@ -330,10 +331,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         -- Path de /zgc compare
         if zgcPrintPending then
             zgcPrintPending = false
-            local cmpUnit = nil
-            for _, u in ipairs({"target", "mouseover", "focus"}) do
-                if UnitGUID(u) == guid then cmpUnit = u; break end
-            end
+            local cmpUnit = pendingUnit or "target"
             if cmpUnit then
                 local name       = UnitName(cmpUnit) or "?"
                 local specID     = ZGC_GetSpecIDForUnit(cmpUnit)
@@ -444,7 +442,8 @@ SlashCmdList["ZINAGEARCOMPARE"] = function(msg)
         end
         local targetName = UnitName("target") or "?"
         print(string.format("|cff00aaff[ZinaGearCompare]|r Inspeccionando a %s…", targetName))
-        zgcPrintPending = true
+        zgcPrintPending    = true
+        pendingInspectUnit = "target"
         NotifyInspect("target")
 
     elseif msg == "score" or msg == "myscore" then
