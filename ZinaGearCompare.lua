@@ -63,7 +63,7 @@ end
 -- Devuelve el % de su daño que debes hacer tú para ser igual de hábil.
 local function ZGC_SkillParity(gearRatio)
     if not gearRatio or gearRatio <= 0 then return nil end
-    return ((1 / gearRatio) ^ 2.0) * 100
+    return ((1 / gearRatio) ^ 1.2) * 100
 end
 
 -- ── Mouseover inspection cache ────────────────────────────────────────────────
@@ -346,49 +346,43 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                     local myTotal, mySlots = ZGC_GetWeightedScore("player", mySpecID, cType)
                     if total and total > 0 then
                         local label = cType == "raid" and "Raid" or "M+"
-                        print(string.format("|cff00aaff[ZinaGearCompare]|r %s — ZGC: |cffffd700%.0f|r |cffaaaaaa(%s · %s)|r",
-                            name, total, specName or "?", label))
+                        -- Línea 1: nombre, spec, ambos scores y label
+                        if myTotal and myTotal > 0 then
+                            print(string.format("|cff00aaff[ZGC]|r %s |cffaaaaaa(%s)|r — Score: |cffffd700%.0f|r vs |cffaaaaaa%.0f tuyo (%s)|r",
+                                name, specName or "?", total, myTotal, label))
+                        else
+                            print(string.format("|cff00aaff[ZGC]|r %s |cffaaaaaa(%s)|r — Score: |cffffd700%.0f|r |cffaaaaaa(%s)|r",
+                                name, specName or "?", total, label))
+                        end
                         if myTotal and myTotal > 0 then
                             local gearRatio = total / myTotal
                             local parity    = ZGC_SkillParity(gearRatio)
-                            print(string.format("  |cffaaaaaa  Mi score: %.0f (%s · %s)   Gear ratio: %.0f%%|r",
-                                myTotal, mySpecName or "?", label, gearRatio * 100))
+                            -- Línea 2: gear diff + parity target
                             if parity then
-                                local parityCol = gearRatio > 1 and "|cffffd700" or "|cff00ff00"
-                                if gearRatio ~= 1 then
-                                    print(string.format("  → Debes hacer el %s%.1f%%|r de su daño para igualar en skill.",
-                                        parityCol, parity))
-                                    if gearRatio > 1 then
-                                        print(string.format("  |cffaaaaaa  (ellos tienen |r|cffffd700%.0f%%|r|cffaaaaaa más equipo que tú)|r",
-                                            (gearRatio - 1) * 100))
-                                    else
-                                        print(string.format("  |cffaaaaaa  (tú tienes |r|cff00ff00%.0f%%|r|cffaaaaaa más equipo que ellos)|r",
-                                            (1/gearRatio - 1) * 100))
-                                    end
+                                if gearRatio > 1 then
+                                    local parityCol = "|cffffd700"
+                                    print(string.format("  |cffaaaaaaGear: ellos +%.0f%%|r | Skill parity: %s≥%.1f%%|r de su daño",
+                                        (gearRatio - 1) * 100, parityCol, parity))
+                                elseif gearRatio < 1 then
+                                    local parityCol = "|cff00ff00"
+                                    print(string.format("  |cffaaaaaaGear: tú +%.0f%%|r | Skill parity: %s≥%.1f%%|r de su daño",
+                                        (1/gearRatio - 1) * 100, parityCol, parity))
                                 else
-                                    print("  |cffaaaaaa→ Equipo equivalente. La diferencia es pura habilidad.|r")
+                                    print("  |cffaaaaaaEquipo equivalente — la diferencia es pura habilidad.|r")
                                 end
-
+                                -- Línea 3 (solo si Details! tiene datos)
                                 local myPlayerName = UnitName("player")
                                 local det = ZGC_GetDetailsComparison(myPlayerName, name)
                                 if det and det.theirDmg > 0 then
                                     local actualRatio = (det.myDmg / det.theirDmg) * 100
                                     local delta_pp    = actualRatio - parity
-                                    local relDelta    = (actualRatio / parity - 1) * 100
                                     local sign        = delta_pp >= 0 and "+" or ""
                                     local col         = delta_pp >= 0 and "|cff00ff00" or "|cffff4444"
                                     local arrow       = delta_pp >= 0 and "↑" or "↓"
-                                    print(string.format("  |cffaaaaaa[Details! · %s]|r", det.segName))
-                                    print(string.format("  |cffaaaaaa  Tu daño: %.0f   Su daño: %.0f|r",
-                                        det.myDmg, det.theirDmg))
-                                    print(string.format("  |cffaaaaaa  Ratio actual: %.1f%% de su daño   Esperado: %.1f%%|r",
-                                        actualRatio, parity))
-                                    print(string.format("  %s→ %s%.1fpp %s (%.1f%% %s lo esperado por equipo)|r",
-                                        col, sign, delta_pp, arrow,
-                                        math.abs(relDelta),
-                                        delta_pp >= 0 and "sobre" or "bajo"))
+                                    print(string.format("  |cffaaaaaa[Details! · %s]|r %.1f%% actual %s→ %s%s%.1fpp sobre esperado %s|r",
+                                        det.segName, actualRatio, col, col, sign, delta_pp, arrow))
                                 elseif _G.Details then
-                                    print("  |cffaaaaaa[Details!] No se encontraron datos de ambos jugadores en los segmentos recientes.|r")
+                                    print("  |cffaaaaaa[Details!] Sin datos de ambos jugadores en segmentos recientes.|r")
                                 end
                             end
                         end
