@@ -12,6 +12,14 @@ local DB_DEFAULTS = {
 -- ── Frame de eventos ─────────────────────────────────────────────────────────
 local eventFrame = CreateFrame("Frame", ADDON_NAME .. "EventFrame")
 
+-- ── Tier tag helper ──────────────────────────────────────────────────────────
+local function ZGC_TierTag(unit)
+    local count = ZGC_CountTierPieces(unit)
+    if count >= 4 then return " |cffFFD7004pc|r"
+    elseif count >= 2 then return " |cffaad4ff2pc|r"
+    else return "" end
+end
+
 -- ── PaperDoll score text ──────────────────────────────────────────────────────
 local zgcPaperDollText = nil
 
@@ -57,14 +65,6 @@ local function InitPaperDoll()
         print("|cffff8800[ZinaGearCompare]|r PaperDoll hook falló:", err)
         zgcPaperDollText = nil
     end
-end
-
--- ── Tier tag helper ──────────────────────────────────────────────────────────
-local function ZGC_TierTag(unit)
-    local count = ZGC_CountTierPieces(unit)
-    if count >= 4 then return " |cffFFD7004pc|r"
-    elseif count >= 2 then return " |cffaad4ff2pc|r"
-    else return "" end
 end
 
 -- ── Mouseover inspection cache ────────────────────────────────────────────────
