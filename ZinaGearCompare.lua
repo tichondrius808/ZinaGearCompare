@@ -117,8 +117,9 @@ local function AddMouseoverTooltipLines(tooltip)
         if sp then
             local col = sp.deltaPP >= 0 and "|cff00ff00" or "|cffff4444"
             local sign = sp.deltaPP >= 0 and "+" or ""
-            tooltip:AddLine(string.format("  |cffaaaaaa%.0f%% actual vs %.0f%% expected|r %s%s%.0fpp|r",
-                sp.actualPct, sp.parity, col, sign, sp.deltaPP))
+            local segTag = useOverall and "Overall" or "Encounter"
+            tooltip:AddLine(string.format("  |cffaaaaaa%.0f%% actual vs %.0f%% expected|r %s%s%.0fpp|r |cff888888[%s]|r",
+                sp.actualPct, sp.parity, col, sign, sp.deltaPP, segTag))
         end
     end
     tooltip:Show()
@@ -567,6 +568,97 @@ SlashCmdList["ZINAGEARCOMPARE"] = function(msg)
         if not ok then
             print("  |cffff4444ERROR en debug:|r", err)
         end
+
+    elseif msg == "diag" then
+        local log = {}
+        local function L(s) log[#log+1] = s; print(s) end
+        L("|cff00aaff[ZGC]|r === DETAILED SCORING DIAGNOSTIC ===")
+        local ok, err = pcall(function()
+            local SLOT_NAMES = {
+                [1]="Head",[2]="Neck",[3]="Shoulder",[5]="Chest",[6]="Waist",
+                [7]="Legs",[8]="Feet",[9]="Wrist",[10]="Hands",[11]="Ring1",
+                [12]="Ring2",[13]="Trinket1",[14]="Trinket2",[15]="Back",
+                [16]="MainHand",[17]="OffHand",
+            }
+            local SLOTS = {1,2,3,5,6,7,8,9,10,11,12,13,14,15,16,17}
+            local ct = ZGC_GetContentType()
+
+            -- Player scoring
+            local mySpecID = ZGC_GetSpecIDForUnit("player")
+            local mySpecName = ZGC_GetSpecNameForUnit("player") or "?"
+            L(string.format("  YOU: %s (specID %s) [%s]", mySpecName, tostring(mySpecID), ct))
+            if mySpecID and ZGC_StatWeights and ZGC_StatWeights[mySpecID] then
+                local sw = ZGC_StatWeights[mySpecID]
+                local w = sw[ct] or sw.dungeon
+                L(string.format("  Weights: pri=%.2f c=%.3f h=%.3f m=%.3f v=%.3f",
+                    w.primary, w.crit, w.haste, w.mastery, w.versatility))
+                local myTotal = 0
+                local mySlots = 0
+                for _, sid in ipairs(SLOTS) do
+                    local link = GetInventoryItemLink("player", sid)
+                    if link then
+                        local sc = ZGC_ScoreItem(link, w, sw.primaryStat)
+                        local name = SLOT_NAMES[sid] or tostring(sid)
+                        if sc then
+                            myTotal = myTotal + sc
+                            mySlots = mySlots + 1
+                            L(string.format("    %-10s %7.0f  %s", name, sc, link:match("%[(.-)%]") or "?"))
+                        else
+                            L(string.format("    %-10s    nil   %s", name, link:match("%[(.-)%]") or "?"))
+                        end
+                    else
+                        L(string.format("    %-10s  EMPTY", SLOT_NAMES[sid] or tostring(sid)))
+                    end
+                end
+                local tierMult = ZGC_GetTierMultiplier("player", mySpecID)
+                L(string.format("  TOTAL: %.0f * %.2f(tier) = %.0f  (%d slots)",
+                    myTotal, tierMult, myTotal * tierMult, mySlots))
+            end
+
+            -- Target scoring (if target exists)
+            if UnitIsPlayer("target") then
+                local tSpecID = ZGC_GetSpecIDForUnit("target")
+                local tSpecName = ZGC_GetSpecNameForUnit("target") or "?"
+                local tName = UnitName("target") or "?"
+                L(string.format("  TARGET: %s - %s (specID %s)", tName, tSpecName, tostring(tSpecID)))
+                if tSpecID and ZGC_StatWeights and ZGC_StatWeights[tSpecID] then
+                    local sw = ZGC_StatWeights[tSpecID]
+                    local w = sw[ct] or sw.dungeon
+                    L(string.format("  Weights: pri=%.2f c=%.3f h=%.3f m=%.3f v=%.3f",
+                        w.primary, w.crit, w.haste, w.mastery, w.versatility))
+                    local tTotal = 0
+                    local tSlots = 0
+                    for _, sid in ipairs(SLOTS) do
+                        local link = GetInventoryItemLink("target", sid)
+                        if link then
+                            local sc = ZGC_ScoreItem(link, w, sw.primaryStat)
+                            local name = SLOT_NAMES[sid] or tostring(sid)
+                            if sc then
+                                tTotal = tTotal + sc
+                                tSlots = tSlots + 1
+                                L(string.format("    %-10s %7.0f  %s", name, sc, link:match("%[(.-)%]") or "?"))
+                            else
+                                L(string.format("    %-10s    nil   %s", name, link:match("%[(.-)%]") or "?"))
+                            end
+                        else
+                            L(string.format("    %-10s  EMPTY", SLOT_NAMES[sid] or tostring(sid)))
+                        end
+                    end
+                    local tierMult = ZGC_GetTierMultiplier("target", tSpecID)
+                    L(string.format("  TOTAL: %.0f * %.2f(tier) = %.0f  (%d slots)",
+                        tTotal, tierMult, tTotal * tierMult, tSlots))
+                else
+                    L("  No weights for target specID or inspect not ready")
+                    L("  (Select target and /zgc compare first, then /zgc diag)")
+                end
+            else
+                L("  TARGET: none (select a player target for comparison)")
+            end
+        end)
+        if not ok then L("  ERROR: " .. tostring(err)) end
+        -- Save to DB so it can be read from SavedVariables file
+        ZinaGearCompareDB.lastDiag = table.concat(log, "\n")
+        L("|cff00aaff[ZGC]|r Diag saved. Type /reload, then check SavedVariables.")
 
     elseif msg == "parity" then
         ZinaGearCompareDB.skillParity = not ZinaGearCompareDB.skillParity
