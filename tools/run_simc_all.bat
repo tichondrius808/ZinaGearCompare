@@ -9,7 +9,7 @@
 ::      desde cualquier directorio.
 :: ============================================================
 
-set SIMC_DIR=C:\XXX\simc-1201.01.bf5d0bc-win64
+set SIMC_DIR=C:\XXX\simc-1201.01.0839efc-win64
 set PROFILES_DIR=%SIMC_DIR%\profiles\MID1
 set OUTPUT_DIR=%~dp0simc_output
 set SIMC_EXE=%SIMC_DIR%\simc.exe
@@ -34,22 +34,31 @@ set SPECS=^
   250_DK_Blood:MID1_Death_Knight_Blood ^
   251_DK_Frost:MID1_Death_Knight_Frost ^
   252_DK_Unholy:MID1_Death_Knight_Unholy ^
+  577_DH_Havoc:MID1_Demon_Hunter_Havoc ^
   581_DH_Vengeance:MID1_Demon_Hunter_Vengeance ^
   1480_DH_Devourer:MID1_Demon_Hunter_Devourer ^
   103_Druid_Feral:MID1_Druid_Feral ^
   1467_Evoker_Devastation:MID1_Evoker_Devastation ^
+  253_Hunter_BM:MID1_Hunter_Beast_Mastery ^
+  254_Hunter_MM:MID1_Hunter_Marksmanship ^
+  255_Hunter_Survival:MID1_Hunter_Survival ^
   62_Mage_Arcane:MID1_Mage_Arcane ^
   63_Mage_Fire:MID1_Mage_Fire ^
   64_Mage_Frost:MID1_Mage_Frost ^
   268_Monk_Brewmaster:MID1_Monk_Brewmaster ^
   269_Monk_Windwalker:MID1_Monk_Windwalker ^
+  66_Paladin_Protection:MID1_Paladin_Protection ^
+  70_Paladin_Retribution:MID1_Paladin_Retribution ^
   258_Priest_Shadow:MID1_Priest_Shadow ^
   260_Rogue_Outlaw:MID1_Rogue_Outlaw ^
   261_Rogue_Subtlety:MID1_Rogue_Subtlety ^
   262_Shaman_Elemental:MID1_Shaman_Elemental ^
   263_Shaman_Enhancement:MID1_Shaman_Enhancement ^
   265_Warlock_Affliction:MID1_Warlock_Affliction ^
+  266_Warlock_Demonology:MID1_Warlock_Demonology ^
   267_Warlock_Destruction:MID1_Warlock_Destruction ^
+  71_Warrior_Arms:MID1_Warrior_Arms ^
+  72_Warrior_Fury:MID1_Warrior_Fury ^
   73_Warrior_Protection:MID1_Warrior_Protection
 
 for %%S in (%SPECS%) do (

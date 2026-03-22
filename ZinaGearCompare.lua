@@ -32,9 +32,10 @@ local function UpdatePaperDollScore()
     end
     if total and total > 0 then
         local label = contentType == "raid" and "Raid" or "M+"
+        local tierTag = ZGC_TierTag("player")
         zgcPaperDollText:SetText(string.format(
-            "|cff00aaffZGC Score:|r |cffffd700%.0f|r  |cffaaaaaa[%s · %s · %d slots]|r",
-            total, specName or "?", label, slots))
+            "|cff00aaffZGC Score:|r |cffffd700%.0f|r  |cffaaaaaa[%s · %s · %d slots%s]|r",
+            total, specName or "?", label, slots, tierTag))
     else
         zgcPaperDollText:SetText("|cffaaaaaaZGC: calculando…|r")
     end
@@ -58,12 +59,12 @@ local function InitPaperDoll()
     end
 end
 
--- ── Fórmula de paridad de skill ───────────────────────────────────────────────
--- gearRatio = score_ellos / score_yo
--- Devuelve el % de su daño que debes hacer tú para ser igual de hábil.
-local function ZGC_SkillParity(gearRatio)
-    if not gearRatio or gearRatio <= 0 then return nil end
-    return ((1 / gearRatio) ^ 1.2) * 100
+-- ── Tier tag helper ──────────────────────────────────────────────────────────
+local function ZGC_TierTag(unit)
+    local count = ZGC_CountTierPieces(unit)
+    if count >= 4 then return " |cffFFD7004pc|r"
+    elseif count >= 2 then return " |cffaad4ff2pc|r"
+    else return "" end
 end
 
 -- ── Mouseover inspection cache ────────────────────────────────────────────────
@@ -72,6 +73,8 @@ local zgcMouseoverRealm     = nil
 local zgcMouseoverScore     = nil
 local zgcMouseoverSpecName  = nil   -- nombre de spec para display (reemplaza scale name)
 local zgcMouseoverGearRatio = nil
+local zgcMouseoverTierCount = nil
+local zgcMouseoverGUID      = nil
 local zgcMouseoverReady     = false
 local zgcMouseoverPending   = false
 local zgcMouseoverWaiting   = false
@@ -83,7 +86,38 @@ local function ZGC_GetMouseoverNameRealm()
     return n, r
 end
 
--- ── Helper: inyectar score ZGC en GameTooltip ─────────────────────────────────
+-- ── Helper: añadir línea de mouseover a un tooltip ──────────────────────────
+local function AddMouseoverTooltipLines(tooltip)
+    if not zgcMouseoverScore or not zgcMouseoverSpecName then return end
+    local ratioStr = ""
+    if zgcMouseoverGearRatio then
+        local pct = zgcMouseoverGearRatio * 100
+        local col = pct < 80 and "|cffff4444" or pct <= 100 and "|cffffd700" or "|cff00ff00"
+        ratioStr = string.format(" · %s%.0f%%|r", col, pct)
+    end
+    local tierStr = ""
+    if zgcMouseoverTierCount and zgcMouseoverTierCount >= 4 then
+        tierStr = " |cffFFD7004pc|r"
+    elseif zgcMouseoverTierCount and zgcMouseoverTierCount >= 2 then
+        tierStr = " |cffaad4ff2pc|r"
+    end
+    tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffffd700%.0f|r |cffaaaaaa(%s%s)|r%s",
+        zgcMouseoverScore, zgcMouseoverSpecName, ratioStr, tierStr))
+    -- Skill Parity (solo si habilitado en config)
+    if ZinaGearCompareDB and ZinaGearCompareDB.skillParity
+       and zgcMouseoverGUID and zgcMouseoverGearRatio then
+        local useOverall = ZinaGearCompareDB.paritySegment == "overall"
+        local sp = ZGC_SkillParity.Calculate(zgcMouseoverGUID, zgcMouseoverGearRatio, useOverall)
+        if sp then
+            local col = sp.deltaPP >= 0 and "|cff00ff00" or "|cffff4444"
+            local sign = sp.deltaPP >= 0 and "+" or ""
+            tooltip:AddLine(string.format("  |cffaaaaaa%.0f%% actual vs %.0f%% expected|r %s%s%.0fpp|r",
+                sp.actualPct, sp.parity, col, sign, sp.deltaPP))
+        end
+    end
+    tooltip:Show()
+end
+
 local function ZGC_InjectMouseoverTooltip()
     if not GameTooltip:IsVisible() then return end
     if not UnitIsPlayer("mouseover") then return end
@@ -91,17 +125,7 @@ local function ZGC_InjectMouseoverTooltip()
     if tn ~= zgcMouseoverName or tr ~= zgcMouseoverRealm then return end
     if GameTooltip.zgcScoreAdded then return end
     GameTooltip.zgcScoreAdded = true
-    if zgcMouseoverScore and zgcMouseoverSpecName then
-        local parityStr = ""
-        local parity = ZGC_SkillParity(zgcMouseoverGearRatio)
-        if parity then
-            local col = parity <= 80 and "|cffff4444" or parity <= 100 and "|cffffd700" or "|cff00ff00"
-            parityStr = string.format("  %sskill≥%.0f%%|r", col, parity)
-        end
-        GameTooltip:AddLine(string.format("|cff00aaffZGC:|r |cffffd700%.0f|r |cffaaaaaa(%s)|r%s",
-            zgcMouseoverScore, zgcMouseoverSpecName, parityStr))
-        GameTooltip:Show()
-    end
+    AddMouseoverTooltipLines(GameTooltip)
 end
 
 local function ZGC_TryMouseoverInspect()
@@ -116,6 +140,8 @@ local function ZGC_TryMouseoverInspect()
     zgcMouseoverScore     = nil
     zgcMouseoverSpecName  = nil
     zgcMouseoverGearRatio = nil
+    zgcMouseoverTierCount = nil
+    zgcMouseoverGUID      = nil
     zgcMouseoverReady     = false
     zgcMouseoverPending   = true
     pendingInspectUnit    = "mouseover"
@@ -136,6 +162,8 @@ local function ZGC_CheckMouseover()
     zgcMouseoverScore     = nil
     zgcMouseoverSpecName  = nil
     zgcMouseoverGearRatio = nil
+    zgcMouseoverTierCount = nil
+    zgcMouseoverGUID      = nil
     zgcMouseoverWaiting   = true
     C_Timer.After(0.1, ZGC_TryMouseoverInspect)
 end
@@ -151,8 +179,9 @@ local function HookGameTooltip()
             local _, specName, total, _, contentType = GetPlayerScore()
             if specName and total and total > 0 then
                 local label = contentType == "raid" and "Raid" or "M+"
-                tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffffd700%.0f|r |cffaaaaaa(%s · %s)|r",
-                    total, specName, label))
+                local tierTag = ZGC_TierTag("player")
+                tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffffd700%.0f|r |cffaaaaaa(%s · %s%s)|r",
+                    total, specName, label, tierTag))
             end
             tooltip:Show()
             return
@@ -164,17 +193,7 @@ local function HookGameTooltip()
         local n, r = ZGC_GetMouseoverNameRealm()
         if n ~= zgcMouseoverName or r ~= zgcMouseoverRealm then return end
         tooltip.zgcScoreAdded = true
-        if zgcMouseoverScore and zgcMouseoverSpecName then
-            local parityStr = ""
-            local parity = ZGC_SkillParity(zgcMouseoverGearRatio)
-            if parity then
-                local col = parity <= 80 and "|cffff4444" or parity <= 100 and "|cffffd700" or "|cff00ff00"
-                parityStr = string.format("  %sskill≥%.0f%%|r", col, parity)
-            end
-            tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffffd700%.0f|r |cffaaaaaa(%s)|r%s",
-                zgcMouseoverScore, zgcMouseoverSpecName, parityStr))
-            tooltip:Show()
-        end
+        AddMouseoverTooltipLines(tooltip)
     end)
 end
 GameTooltip:HookScript("OnTooltipCleared", function(self)
@@ -231,6 +250,7 @@ local function OnAddonLoaded(addonName)
         end
     end
 
+    ZGC_InitConfig()
     ZGC_InitUI()
     InitPaperDoll()
     pcall(HookGameTooltip)
@@ -290,11 +310,13 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                 local n, r = ZGC_GetMouseoverNameRealm()
                 zgcMouseoverName  = n
                 zgcMouseoverRealm = r
+                zgcMouseoverGUID  = UnitGUID("mouseover")
                 local specID      = ZGC_GetSpecIDForUnit("mouseover")
                 local specName    = ZGC_GetSpecNameForUnit("mouseover")
                 local contentType = ZGC_GetContentType()
                 if specID then
                     local total, slotsScored = ZGC_GetWeightedScore("mouseover", specID, contentType)
+                    zgcMouseoverTierCount = ZGC_CountTierPieces("mouseover")
                     if total and total > 0 then
                         zgcMouseoverScore    = total
                         zgcMouseoverSpecName = specName
@@ -346,44 +368,42 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                     local myTotal, mySlots = ZGC_GetWeightedScore("player", mySpecID, cType)
                     if total and total > 0 then
                         local label = cType == "raid" and "Raid" or "M+"
+                        local tierCount = ZGC_CountTierPieces(cmpUnit)
+                        local tierStr = tierCount >= 4 and " · 4pc" or tierCount >= 2 and " · 2pc" or ""
                         -- Línea 1: nombre, spec, ambos scores y label
                         if myTotal and myTotal > 0 then
-                            print(string.format("|cff00aaff[ZGC]|r %s |cffaaaaaa(%s)|r — Score: |cffffd700%.0f|r vs |cffaaaaaa%.0f tuyo (%s)|r",
-                                name, specName or "?", total, myTotal, label))
-                        else
-                            print(string.format("|cff00aaff[ZGC]|r %s |cffaaaaaa(%s)|r — Score: |cffffd700%.0f|r |cffaaaaaa(%s)|r",
-                                name, specName or "?", total, label))
-                        end
-                        if myTotal and myTotal > 0 then
                             local gearRatio = total / myTotal
-                            local parity    = ZGC_SkillParity(gearRatio)
-                            -- Línea 2: gear diff + parity target
-                            if parity then
-                                if gearRatio > 1 then
-                                    local parityCol = "|cffffd700"
-                                    print(string.format("  |cffaaaaaaGear: ellos +%.0f%%|r | Skill parity: %s≥%.1f%%|r de su daño",
-                                        (gearRatio - 1) * 100, parityCol, parity))
-                                elseif gearRatio < 1 then
-                                    local parityCol = "|cff00ff00"
-                                    print(string.format("  |cffaaaaaaGear: tú +%.0f%%|r | Skill parity: %s≥%.1f%%|r de su daño",
-                                        (1/gearRatio - 1) * 100, parityCol, parity))
-                                else
-                                    print("  |cffaaaaaaEquipo equivalente — la diferencia es pura habilidad.|r")
-                                end
-                                -- Línea 3 (solo si Details! tiene datos)
-                                local myPlayerName = UnitName("player")
-                                local det = ZGC_GetDetailsComparison(myPlayerName, name)
-                                if det and det.theirDmg > 0 then
-                                    local actualRatio = (det.myDmg / det.theirDmg) * 100
-                                    local delta_pp    = actualRatio - parity
-                                    local sign        = delta_pp >= 0 and "+" or ""
-                                    local col         = delta_pp >= 0 and "|cff00ff00" or "|cffff4444"
-                                    local arrow       = delta_pp >= 0 and "↑" or "↓"
-                                    print(string.format("  |cffaaaaaa[Details! · %s]|r %.1f%% actual %s→ %s%s%.1fpp sobre esperado %s|r",
-                                        det.segName, actualRatio, col, col, sign, delta_pp, arrow))
-                                elseif _G.Details then
-                                    print("  |cffaaaaaa[Details!] Sin datos de ambos jugadores en segmentos recientes.|r")
-                                end
+                            local pct = gearRatio * 100
+                            local col = pct < 80 and "|cffff4444" or pct <= 100 and "|cffffd700" or "|cff00ff00"
+                            print(string.format("|cff00aaff[ZGC]|r %s |cffaaaaaa(%s)|r — Score: |cffffd700%.0f|r vs |cffaaaaaa%.0f tuyo|r  %s%.0f%%|r |cffaaaaaa(%s%s)|r",
+                                name, specName or "?", total, myTotal, col, pct, label, tierStr))
+                        else
+                            print(string.format("|cff00aaff[ZGC]|r %s |cffaaaaaa(%s)|r — Score: |cffffd700%.0f|r |cffaaaaaa(%s%s)|r",
+                                name, specName or "?", total, label, tierStr))
+                        end
+                        -- Línea 2: Skill Parity via C_DamageMeter (si habilitado)
+                        if myTotal and myTotal > 0 and ZinaGearCompareDB and ZinaGearCompareDB.skillParity then
+                            local targetGUID = UnitGUID(cmpUnit)
+                            local gearRatio = total / myTotal
+                            local useOverall = ZinaGearCompareDB.paritySegment == "overall"
+                            local sp = ZGC_SkillParity.Calculate(targetGUID, gearRatio, useOverall)
+                            if sp then
+                                local segLabel = useOverall and "Overall" or "Encounter"
+                                local col = sp.deltaPP >= 0 and "|cff00ff00" or "|cffff4444"
+                                local sign = sp.deltaPP >= 0 and "+" or ""
+                                print(string.format("  |cffaaaaaa[DamageMeter · %s]|r %.1f%% actual vs %.1f%% expected  %s%s%.1fpp|r",
+                                    segLabel, sp.actualPct, sp.parity, col, sign, sp.deltaPP))
+                            end
+                        end
+                        -- Línea 3: Details! fallback (si disponible)
+                        if myTotal and myTotal > 0 then
+                            local myPlayerName = UnitName("player")
+                            local det = ZGC_GetDetailsComparison(myPlayerName, name)
+                            if det and det.theirDmg > 0 then
+                                local actualRatio = (det.myDmg / det.theirDmg) * 100
+                                local col = actualRatio >= 100 and "|cff00ff00" or "|cffff4444"
+                                print(string.format("  |cffaaaaaa[Details! · %s]|r %s%.1f%%|r de su daño",
+                                    det.segName, col, actualRatio))
                             end
                         end
                     else
@@ -520,6 +540,22 @@ SlashCmdList["ZINAGEARCOMPARE"] = function(msg)
             print("  |cffff4444ERROR en debug:|r", err)
         end
 
+    elseif msg == "parity" then
+        ZinaGearCompareDB.skillParity = not ZinaGearCompareDB.skillParity
+        local state = ZinaGearCompareDB.skillParity and "|cff00ff00ON|r" or "|cffff4444OFF|r"
+        print(string.format("|cff00aaff[ZGC]|r Skill Parity: %s", state))
+
+    elseif msg == "parity current" then
+        ZinaGearCompareDB.paritySegment = "current"
+        print("|cff00aaff[ZGC]|r Skill Parity segment: |cffffd700Current Encounter|r")
+
+    elseif msg == "parity overall" then
+        ZinaGearCompareDB.paritySegment = "overall"
+        print("|cff00aaff[ZGC]|r Skill Parity segment: |cffffd700Overall|r")
+
+    elseif msg == "config" or msg == "settings" or msg == "options" then
+        Settings.OpenToCategory(ADDON_NAME)
+
     else
         print("|cff00aaff[ZinaGearCompare]|r Comandos disponibles:")
         print("  /zgc compare        — compara el equipo de tu target contra el tuyo")
@@ -527,6 +563,10 @@ SlashCmdList["ZINAGEARCOMPARE"] = function(msg)
         print("  /zgc mode auto      — auto-detectar tipo de contenido")
         print("  /zgc mode dungeon   — forzar pesos de M+")
         print("  /zgc mode raid      — forzar pesos de Raid")
+        print("  /zgc parity         — toggle Skill Parity on/off")
+        print("  /zgc parity current — usar encounter actual")
+        print("  /zgc parity overall — usar overall de la instancia")
+        print("  /zgc config         — abrir panel de configuración")
         print("  /zgc debug          — diagnóstico completo")
         print("  /zgc reset          — resetea la base de datos del addon")
     end

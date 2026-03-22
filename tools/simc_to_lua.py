@@ -28,22 +28,31 @@ SPEC_MAP = {
     "250_DK_Blood":           (250,  "ITEM_MOD_STRENGTH_SHORT",    "Death Knight",  "Blood (Tank)"),
     "251_DK_Frost":           (251,  "ITEM_MOD_STRENGTH_SHORT",    "Death Knight",  "Frost"),
     "252_DK_Unholy":          (252,  "ITEM_MOD_STRENGTH_SHORT",    "Death Knight",  "Unholy"),
+    "577_DH_Havoc":           (577,  "ITEM_MOD_AGILITY_SHORT",     "Demon Hunter",  "Havoc"),
     "581_DH_Vengeance":       (581,  "ITEM_MOD_AGILITY_SHORT",     "Demon Hunter",  "Vengeance (Tank)"),
     "1480_DH_Devourer":       (1480, "ITEM_MOD_INTELLECT_SHORT",   "Demon Hunter",  "Devourer"),
     "103_Druid_Feral":        (103,  "ITEM_MOD_AGILITY_SHORT",     "Druid",         "Feral"),
     "1467_Evoker_Devastation":(1467, "ITEM_MOD_INTELLECT_SHORT",   "Evoker",        "Devastation"),
+    "253_Hunter_BM":          (253,  "ITEM_MOD_AGILITY_SHORT",     "Hunter",        "Beast Mastery"),
+    "254_Hunter_MM":          (254,  "ITEM_MOD_AGILITY_SHORT",     "Hunter",        "Marksmanship"),
+    "255_Hunter_Survival":    (255,  "ITEM_MOD_AGILITY_SHORT",     "Hunter",        "Survival"),
     "62_Mage_Arcane":         (62,   "ITEM_MOD_INTELLECT_SHORT",   "Mage",          "Arcane"),
     "63_Mage_Fire":           (63,   "ITEM_MOD_INTELLECT_SHORT",   "Mage",          "Fire"),
     "64_Mage_Frost":          (64,   "ITEM_MOD_INTELLECT_SHORT",   "Mage",          "Frost"),
     "268_Monk_Brewmaster":    (268,  "ITEM_MOD_AGILITY_SHORT",     "Monk",          "Brewmaster (Tank)"),
     "269_Monk_Windwalker":    (269,  "ITEM_MOD_AGILITY_SHORT",     "Monk",          "Windwalker"),
+    "66_Paladin_Protection":  (66,   "ITEM_MOD_STRENGTH_SHORT",    "Paladin",       "Protection (Tank)"),
+    "70_Paladin_Retribution": (70,   "ITEM_MOD_STRENGTH_SHORT",    "Paladin",       "Retribution"),
     "258_Priest_Shadow":      (258,  "ITEM_MOD_INTELLECT_SHORT",   "Priest",        "Shadow"),
     "260_Rogue_Outlaw":       (260,  "ITEM_MOD_AGILITY_SHORT",     "Rogue",         "Outlaw"),
     "261_Rogue_Subtlety":     (261,  "ITEM_MOD_AGILITY_SHORT",     "Rogue",         "Subtlety"),
     "262_Shaman_Elemental":   (262,  "ITEM_MOD_INTELLECT_SHORT",   "Shaman",        "Elemental"),
     "263_Shaman_Enhancement": (263,  "ITEM_MOD_AGILITY_SHORT",     "Shaman",        "Enhancement"),
     "265_Warlock_Affliction": (265,  "ITEM_MOD_INTELLECT_SHORT",   "Warlock",       "Affliction"),
+    "266_Warlock_Demonology": (266,  "ITEM_MOD_INTELLECT_SHORT",   "Warlock",       "Demonology"),
     "267_Warlock_Destruction":(267,  "ITEM_MOD_INTELLECT_SHORT",   "Warlock",       "Destruction"),
+    "71_Warrior_Arms":        (71,   "ITEM_MOD_STRENGTH_SHORT",    "Warrior",       "Arms"),
+    "72_Warrior_Fury":        (72,   "ITEM_MOD_STRENGTH_SHORT",    "Warrior",       "Fury"),
     "73_Warrior_Protection":  (73,   "ITEM_MOD_STRENGTH_SHORT",    "Warrior",       "Protection (Tank)"),
 }
 
@@ -62,106 +71,61 @@ SIMC_KEY_MAP = {
 # (specID, primaryToken, clase, spec, dungeon_weights, raid_weights,
 #  tier2pc, tier4pc, nota)
 MANUAL_SPECS = [
-    # Havoc DH — sin perfil MID1
-    (577,  "ITEM_MOD_AGILITY_SHORT",   "Demon Hunter", "Havoc",
-     dict(primary=1.0, crit=0.55, haste=0.30, mastery=0.44, versatility=0.22),
-     dict(primary=1.0, crit=0.55, haste=0.30, mastery=0.44, versatility=0.22),
-     1.05, 1.12, "estimado — sin perfil MID1"),
-    # Balance Druid
+    # Balance Druid — haste +12% dungeon (AoE), mastery +8% raid (ST)
     (102,  "ITEM_MOD_INTELLECT_SHORT", "Druid", "Balance",
-     dict(primary=1.0, crit=0.44, haste=0.46, mastery=0.54, versatility=0.26),
-     dict(primary=1.0, crit=0.44, haste=0.46, mastery=0.54, versatility=0.26),
+     dict(primary=1.0, crit=0.44, haste=0.52, mastery=0.50, versatility=0.26),
+     dict(primary=1.0, crit=0.44, haste=0.42, mastery=0.58, versatility=0.26),
      1.05, 1.12, "estimado — sin perfil MID1"),
-    # Guardian Druid
+    # Guardian Druid — haste +10% dungeon, mastery +8% raid
     (104,  "ITEM_MOD_AGILITY_SHORT",   "Druid", "Guardian (Tank)",
-     dict(primary=1.0, crit=0.40, haste=0.47, mastery=0.34, versatility=0.44),
-     dict(primary=1.0, crit=0.40, haste=0.47, mastery=0.34, versatility=0.44),
+     dict(primary=1.0, crit=0.40, haste=0.52, mastery=0.30, versatility=0.44),
+     dict(primary=1.0, crit=0.40, haste=0.43, mastery=0.38, versatility=0.44),
      1.05, 1.12, "estimado — sin perfil MID1"),
-    # Restoration Druid
+    # Restoration Druid — haste +10% dungeon, mastery +5% raid
     (105,  "ITEM_MOD_INTELLECT_SHORT", "Druid", "Restoration (Healer)",
-     dict(primary=1.0, crit=0.20, haste=0.88, mastery=0.70, versatility=0.48),
-     dict(primary=1.0, crit=0.20, haste=0.88, mastery=0.70, versatility=0.48),
+     dict(primary=1.0, crit=0.20, haste=0.96, mastery=0.66, versatility=0.48),
+     dict(primary=1.0, crit=0.20, haste=0.82, mastery=0.74, versatility=0.48),
      1.05, 1.10, "estimado — sin perfil MID1"),
-    # Preservation Evoker
+    # Preservation Evoker — haste +12% dungeon, mastery +6% raid
     (1468, "ITEM_MOD_INTELLECT_SHORT", "Evoker", "Preservation (Healer)",
-     dict(primary=1.0, crit=0.38, haste=0.54, mastery=0.78, versatility=0.28),
-     dict(primary=1.0, crit=0.38, haste=0.54, mastery=0.78, versatility=0.28),
+     dict(primary=1.0, crit=0.38, haste=0.60, mastery=0.74, versatility=0.28),
+     dict(primary=1.0, crit=0.38, haste=0.48, mastery=0.82, versatility=0.28),
      1.05, 1.10, "estimado — sin perfil MID1"),
     # Augmentation Evoker
     (1473, "ITEM_MOD_INTELLECT_SHORT", "Evoker", "Augmentation (Support)",
-     dict(primary=1.0, crit=0.38, haste=0.50, mastery=0.45, versatility=0.32),
-     dict(primary=1.0, crit=0.36, haste=0.52, mastery=0.48, versatility=0.30),
+     dict(primary=1.0, crit=0.38, haste=0.56, mastery=0.42, versatility=0.32),
+     dict(primary=1.0, crit=0.36, haste=0.46, mastery=0.50, versatility=0.30),
      1.05, 1.12, "estimado — sin perfil MID1"),
-    # BM Hunter
-    (253,  "ITEM_MOD_AGILITY_SHORT",   "Hunter", "Beast Mastery",
-     dict(primary=1.0, crit=0.44, haste=0.38, mastery=0.54, versatility=0.36),
-     dict(primary=1.0, crit=0.38, haste=0.48, mastery=0.56, versatility=0.30),
-     1.05, 1.12, "estimado — sin perfil MID1"),
-    # Marksmanship Hunter
-    (254,  "ITEM_MOD_AGILITY_SHORT",   "Hunter", "Marksmanship",
-     dict(primary=1.0, crit=0.54, haste=0.32, mastery=0.44, versatility=0.22),
-     dict(primary=1.0, crit=0.54, haste=0.32, mastery=0.44, versatility=0.22),
-     1.05, 1.12, "estimado — sin perfil MID1"),
-    # Survival Hunter
-    (255,  "ITEM_MOD_AGILITY_SHORT",   "Hunter", "Survival",
-     dict(primary=1.0, crit=0.44, haste=0.46, mastery=0.56, versatility=0.26),
-     dict(primary=1.0, crit=0.44, haste=0.46, mastery=0.56, versatility=0.26),
-     1.05, 1.12, "estimado — sin perfil MID1"),
-    # Mistweaver Monk
+    # Mistweaver Monk — haste +10% dungeon, mastery +8% raid
     (270,  "ITEM_MOD_INTELLECT_SHORT", "Monk", "Mistweaver (Healer)",
-     dict(primary=1.0, crit=0.44, haste=0.58, mastery=0.26, versatility=0.48),
-     dict(primary=1.0, crit=0.48, haste=0.58, mastery=0.26, versatility=0.40),
+     dict(primary=1.0, crit=0.44, haste=0.64, mastery=0.22, versatility=0.48),
+     dict(primary=1.0, crit=0.48, haste=0.52, mastery=0.30, versatility=0.40),
      1.05, 1.10, "estimado — sin perfil MID1"),
-    # Holy Paladin
+    # Holy Paladin — haste +12% dungeon, mastery +8% raid
     (65,   "ITEM_MOD_INTELLECT_SHORT", "Paladin", "Holy (Healer)",
-     dict(primary=1.0, crit=0.45, haste=0.45, mastery=0.54, versatility=0.30),
-     dict(primary=1.0, crit=0.45, haste=0.45, mastery=0.54, versatility=0.30),
+     dict(primary=1.0, crit=0.45, haste=0.50, mastery=0.50, versatility=0.30),
+     dict(primary=1.0, crit=0.45, haste=0.40, mastery=0.58, versatility=0.30),
      1.05, 1.10, "estimado — sin perfil MID1"),
-    # Protection Paladin
-    (66,   "ITEM_MOD_STRENGTH_SHORT",  "Paladin", "Protection (Tank)",
-     dict(primary=1.0, crit=0.34, haste=0.54, mastery=0.38, versatility=0.46),
-     dict(primary=1.0, crit=0.34, haste=0.54, mastery=0.40, versatility=0.44),
-     1.05, 1.12, "estimado — sin perfil MID1"),
-    # Retribution Paladin
-    (70,   "ITEM_MOD_STRENGTH_SHORT",  "Paladin", "Retribution",
-     dict(primary=1.0, crit=0.36, haste=0.46, mastery=0.54, versatility=0.24),
-     dict(primary=1.0, crit=0.36, haste=0.46, mastery=0.54, versatility=0.24),
-     1.05, 1.12, "estimado — sin perfil MID1"),
-    # Discipline Priest
+    # Discipline Priest — haste +10% dungeon, mastery +8% raid
     (256,  "ITEM_MOD_INTELLECT_SHORT", "Priest", "Discipline (Healer)",
-     dict(primary=1.0, crit=0.48, haste=0.56, mastery=0.28, versatility=0.36),
-     dict(primary=1.0, crit=0.48, haste=0.56, mastery=0.36, versatility=0.28),
+     dict(primary=1.0, crit=0.48, haste=0.62, mastery=0.24, versatility=0.36),
+     dict(primary=1.0, crit=0.48, haste=0.50, mastery=0.36, versatility=0.28),
      1.05, 1.10, "estimado — sin perfil MID1"),
-    # Holy Priest
+    # Holy Priest — haste +12% dungeon, mastery +10% raid
     (257,  "ITEM_MOD_INTELLECT_SHORT", "Priest", "Holy (Healer)",
-     dict(primary=1.0, crit=0.50, haste=0.36, mastery=0.26, versatility=0.56),
-     dict(primary=1.0, crit=0.56, haste=0.30, mastery=0.46, versatility=0.46),
+     dict(primary=1.0, crit=0.50, haste=0.40, mastery=0.22, versatility=0.56),
+     dict(primary=1.0, crit=0.56, haste=0.30, mastery=0.36, versatility=0.46),
      1.05, 1.10, "estimado — sin perfil MID1"),
-    # Assassination Rogue
+    # Assassination Rogue — haste +10% dungeon, mastery +6% raid
     (259,  "ITEM_MOD_AGILITY_SHORT",   "Rogue", "Assassination",
-     dict(primary=1.0, crit=0.55, haste=0.46, mastery=0.34, versatility=0.22),
-     dict(primary=1.0, crit=0.55, haste=0.46, mastery=0.34, versatility=0.22),
+     dict(primary=1.0, crit=0.55, haste=0.51, mastery=0.30, versatility=0.22),
+     dict(primary=1.0, crit=0.55, haste=0.42, mastery=0.38, versatility=0.22),
      1.05, 1.12, "estimado — sin perfil MID1"),
-    # Restoration Shaman
+    # Restoration Shaman — haste +10% dungeon, mastery +5% raid
     (264,  "ITEM_MOD_INTELLECT_SHORT", "Shaman", "Restoration (Healer)",
-     dict(primary=1.0, crit=0.62, haste=0.38, mastery=0.38, versatility=0.38),
-     dict(primary=1.0, crit=0.62, haste=0.38, mastery=0.38, versatility=0.38),
+     dict(primary=1.0, crit=0.62, haste=0.42, mastery=0.34, versatility=0.38),
+     dict(primary=1.0, crit=0.62, haste=0.34, mastery=0.42, versatility=0.38),
      1.05, 1.10, "estimado — sin perfil MID1"),
-    # Demonology Warlock
-    (266,  "ITEM_MOD_INTELLECT_SHORT", "Warlock", "Demonology",
-     dict(primary=1.0, crit=0.50, haste=0.50, mastery=0.38, versatility=0.24),
-     dict(primary=1.0, crit=0.50, haste=0.50, mastery=0.38, versatility=0.24),
-     1.05, 1.12, "estimado — sin perfil MID1"),
-    # Arms Warrior
-    (71,   "ITEM_MOD_STRENGTH_SHORT",  "Warrior", "Arms",
-     dict(primary=1.0, crit=0.52, haste=0.50, mastery=0.38, versatility=0.24),
-     dict(primary=1.0, crit=0.52, haste=0.50, mastery=0.38, versatility=0.24),
-     1.05, 1.12, "estimado — sin perfil MID1"),
-    # Fury Warrior
-    (72,   "ITEM_MOD_STRENGTH_SHORT",  "Warrior", "Fury",
-     dict(primary=1.0, crit=0.36, haste=0.54, mastery=0.46, versatility=0.26),
-     dict(primary=1.0, crit=0.36, haste=0.54, mastery=0.46, versatility=0.26),
-     1.05, 1.12, "estimado — sin perfil MID1"),
 ]
 
 # ── Funciones ─────────────────────────────────────────────────────────────────
@@ -326,9 +290,8 @@ def main():
             tier4pc       = info.get("tier4pc", 1.12)
 
             if source == "simc":
-                # Determinar tier4pc: healers tienen 1.10, resto 1.12
+                # Determinar tier4pc: healers/tanks tienen 1.10, resto 1.12
                 tier4pc = 1.10 if any(x in spec_name for x in ["Healer", "Tank"]) else 1.12
-                tier4pc = 1.12  # default; ajustar manualmente si necesario
                 nota = f"SimC MID1 · {today}"
                 # Orden de stats para el comentario
                 order_str = stat_order(w_dungeon or w_raid) if (w_dungeon or w_raid) else "?"

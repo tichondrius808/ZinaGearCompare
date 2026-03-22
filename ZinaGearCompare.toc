@@ -1,16 +1,24 @@
 ## Interface: 110005, 120001
 ## Title: ZinaGearCompare
 ## Notes: Compares gear quality between players using built-in stat weights. No dependencies required.
-## Version: 2.1.0
+## Version: 2.2.0
 ## Author: Zina
 ## X-Website: https://github.com/tichondrius808/ZinaGearCompare
 ## X-License: MIT
 ## X-Curse-Project-ID: 1484069
 ## SavedVariables: ZinaGearCompareDB
+## IconTexture: 132089
+
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
 
 ZinaStatWeights.lua
 ZinaTierSets.lua
 ZinaContentDetector.lua
 Scoring.lua
+ZinaSkillParity.lua
+ZinaConfig.lua
 InspectUI.lua
 ZinaGearCompare.lua
