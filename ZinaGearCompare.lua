@@ -172,10 +172,10 @@ end
 local function HookGameTooltip()
     if not TooltipDataProcessor then return end
     TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(tooltip, data)
-        if not data or not data.guid then return end
+        if not data then return end
 
-        -- Propio jugador
-        if data.guid == UnitGUID("player") then
+        -- Propio jugador (no comparar data.guid — es secret/tainted en 12.0+)
+        if UnitExists("mouseover") and UnitIsUnit("mouseover", "player") then
             local _, specName, total, _, contentType = GetPlayerScore()
             if specName and total and total > 0 then
                 local label = contentType == "raid" and "Raid" or "M+"
