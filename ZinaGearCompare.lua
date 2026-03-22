@@ -75,6 +75,7 @@ local zgcMouseoverSpecName  = nil   -- nombre de spec para display (reemplaza sc
 local zgcMouseoverGearRatio = nil
 local zgcMouseoverTierCount = nil
 local zgcMouseoverGUID      = nil
+local zgcMouseoverFallback  = nil   -- mensaje corto si no se puede puntuar
 local zgcMouseoverReady     = false
 local zgcMouseoverPending   = false
 local zgcMouseoverWaiting   = false
@@ -88,6 +89,11 @@ end
 
 -- ── Helper: añadir línea de mouseover a un tooltip ──────────────────────────
 local function AddMouseoverTooltipLines(tooltip)
+    if zgcMouseoverFallback then
+        tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffaaaaaa%s|r", zgcMouseoverFallback))
+        tooltip:Show()
+        return
+    end
     if not zgcMouseoverScore or not zgcMouseoverSpecName then return end
     local ratioStr = ""
     if zgcMouseoverGearRatio then
@@ -142,6 +148,7 @@ local function ZGC_TryMouseoverInspect()
     zgcMouseoverGearRatio = nil
     zgcMouseoverTierCount = nil
     zgcMouseoverGUID      = nil
+    zgcMouseoverFallback  = nil
     zgcMouseoverReady     = false
     zgcMouseoverPending   = true
     pendingInspectUnit    = "mouseover"
@@ -164,6 +171,7 @@ local function ZGC_CheckMouseover()
     zgcMouseoverGearRatio = nil
     zgcMouseoverTierCount = nil
     zgcMouseoverGUID      = nil
+    zgcMouseoverFallback  = nil
     zgcMouseoverWaiting   = true
     C_Timer.After(0.1, ZGC_TryMouseoverInspect)
 end
@@ -176,12 +184,16 @@ local function HookGameTooltip()
 
         -- Propio jugador (no comparar data.guid — es secret/tainted en 12.0+)
         if UnitExists("mouseover") and UnitIsUnit("mouseover", "player") then
-            local _, specName, total, _, contentType = GetPlayerScore()
+            local specID, specName, total, _, contentType = GetPlayerScore()
             if specName and total and total > 0 then
                 local label = contentType == "raid" and "Raid" or "M+"
                 local tierTag = ZGC_TierTag("player")
                 tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffffd700%.0f|r |cffaaaaaa(%s · %s%s)|r",
                     total, specName, label, tierTag))
+            elseif specID and (not ZGC_StatWeights or not ZGC_StatWeights[specID]) then
+                tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffaaaaaa%s — sin stat weights|r", specName or "?"))
+            elseif not specID then
+                tooltip:AddLine("|cff00aaffZGC:|r |cffaaaaaaspec no detectada|r")
             end
             tooltip:Show()
             return
@@ -315,35 +327,45 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                 local specName    = ZGC_GetSpecNameForUnit("mouseover")
                 local contentType = ZGC_GetContentType()
                 if specID then
-                    local total, slotsScored = ZGC_GetWeightedScore("mouseover", specID, contentType)
-                    zgcMouseoverTierCount = ZGC_CountTierPieces("mouseover")
-                    if total and total > 0 then
-                        zgcMouseoverScore    = total
+                    if not ZGC_StatWeights or not ZGC_StatWeights[specID] then
+                        zgcMouseoverFallback = (specName or "?") .. " — sin stat weights"
                         zgcMouseoverSpecName = specName
-                        -- Ratio: comparar con misma spec/contentType del jugador local
-                        local mySpecID   = ZGC_GetSpecIDForUnit("player")
-                        local myTotal    = ZGC_GetWeightedScore("player", mySpecID, contentType)
-                        if myTotal and myTotal > 0 then
-                            zgcMouseoverGearRatio = total / myTotal
+                    else
+                        local total, slotsScored = ZGC_GetWeightedScore("mouseover", specID, contentType)
+                        zgcMouseoverTierCount = ZGC_CountTierPieces("mouseover")
+                        if total and total > 0 then
+                            zgcMouseoverScore    = total
+                            zgcMouseoverSpecName = specName
+                            local mySpecID   = ZGC_GetSpecIDForUnit("player")
+                            local myTotal    = ZGC_GetWeightedScore("player", mySpecID, contentType)
+                            if myTotal and myTotal > 0 then
+                                zgcMouseoverGearRatio = total / myTotal
+                            end
+                        else
+                            zgcMouseoverFallback = (specName or "?") .. " — sin datos de equipo"
+                            zgcMouseoverSpecName = specName
+                        end
+                        -- Retry si pocos slots
+                        if slotsScored < 8 then
+                            C_Timer.After(1.5, function()
+                                if zgcMouseoverName ~= n then return end
+                                if not UnitIsPlayer("mouseover") then return end
+                                local retryTotal, retrySlotsScored = ZGC_GetWeightedScore("mouseover", specID, contentType)
+                                if retryTotal and retryTotal > 0 and retrySlotsScored > slotsScored then
+                                    zgcMouseoverScore = retryTotal
+                                    zgcMouseoverFallback = nil
+                                    local mySpecID2 = ZGC_GetSpecIDForUnit("player")
+                                    local myTotal2  = ZGC_GetWeightedScore("player", mySpecID2, contentType)
+                                    if myTotal2 and myTotal2 > 0 then
+                                        zgcMouseoverGearRatio = retryTotal / myTotal2
+                                    end
+                                    ZGC_InjectMouseoverTooltip()
+                                end
+                            end)
                         end
                     end
-                    -- Retry si pocos slots
-                    if slotsScored < 8 then
-                        C_Timer.After(1.5, function()
-                            if zgcMouseoverName ~= n then return end
-                            if not UnitIsPlayer("mouseover") then return end
-                            local retryTotal, retrySlotsScored = ZGC_GetWeightedScore("mouseover", specID, contentType)
-                            if retryTotal and retryTotal > 0 and retrySlotsScored > slotsScored then
-                                zgcMouseoverScore = retryTotal
-                                local mySpecID2 = ZGC_GetSpecIDForUnit("player")
-                                local myTotal2  = ZGC_GetWeightedScore("player", mySpecID2, contentType)
-                                if myTotal2 and myTotal2 > 0 then
-                                    zgcMouseoverGearRatio = retryTotal / myTotal2
-                                end
-                                ZGC_InjectMouseoverTooltip()
-                            end
-                        end)
-                    end
+                else
+                    zgcMouseoverFallback = "spec no detectada"
                 end
                 zgcMouseoverReady = true
                 ZGC_InjectMouseoverTooltip()
