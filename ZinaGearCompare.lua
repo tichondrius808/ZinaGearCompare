@@ -35,7 +35,7 @@ local function UpdatePaperDollScore()
     if not zgcPaperDollText then return end
     local specID, specName, total, slots, contentType = GetPlayerScore()
     if not specID then
-        zgcPaperDollText:SetText("|cffaaaaaa[ZGC] spec desconocida|r")
+        zgcPaperDollText:SetText("|cffaaaaaa[ZGC] spec not detected|r")
         return
     end
     if total and total > 0 then
@@ -45,7 +45,7 @@ local function UpdatePaperDollScore()
             "|cff00aaffZGC Score:|r |cffffd700%.0f|r  |cffaaaaaa[%s · %s · %d slots%s]|r",
             total, specName or "?", label, slots, tierTag))
     else
-        zgcPaperDollText:SetText("|cffaaaaaaZGC: calculando…|r")
+        zgcPaperDollText:SetText("|cffaaaaaaZGC: calculating…|r")
     end
 end
 
@@ -191,17 +191,23 @@ local function HookGameTooltip()
                 tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffffd700%.0f|r |cffaaaaaa(%s · %s%s)|r",
                     total, specName, label, tierTag))
             elseif specID and (not ZGC_StatWeights or not ZGC_StatWeights[specID]) then
-                tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffaaaaaa%s — sin stat weights|r", specName or "?"))
+                tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffaaaaaa%s — no stat weights|r", specName or "?"))
             elseif not specID then
-                tooltip:AddLine("|cff00aaffZGC:|r |cffaaaaaaspec no detectada|r")
+                tooltip:AddLine("|cff00aaffZGC:|r |cffaaaaaaspec not detected|r")
             end
             tooltip:Show()
             return
         end
 
-        -- Otro jugador: mostrar score cacheado
+        -- Otro jugador: mostrar score cacheado o loading
         if not UnitIsPlayer("mouseover") then return end
-        if not zgcMouseoverReady then return end
+        if not zgcMouseoverReady then
+            if zgcMouseoverPending or zgcMouseoverWaiting then
+                tooltip:AddLine("|cff00aaffZGC:|r |cffaaaaaaloading…|r")
+                tooltip:Show()
+            end
+            return
+        end
         local n, r = ZGC_GetMouseoverNameRealm()
         if n ~= zgcMouseoverName or r ~= zgcMouseoverRealm then return end
         tooltip.zgcScoreAdded = true
@@ -268,14 +274,14 @@ local function OnAddonLoaded(addonName)
     pcall(HookGameTooltip)
 
     local specID   = ZGC_GetSpecIDForUnit("player")
-    local specName = ZGC_GetSpecNameForUnit("player") or "desconocida"
+    local specName = ZGC_GetSpecNameForUnit("player") or "unknown"
     if specID and ZGC_StatWeights and ZGC_StatWeights[specID] then
         print(string.format("|cff00aaff[ZinaGearCompare]|r cargado. Spec: %s. " ..
               "Abre el personaje o inspecciona a alguien para ver Gear Quality.",
               specName))
     else
         print("|cff00aaff[ZinaGearCompare]|r cargado. " ..
-              "(Spec no detectada aún — abre el panel de personaje para actualizar.)")
+              "(Spec not detected yet — open character panel to update.)")
     end
 end
 
@@ -328,7 +334,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                 local contentType = ZGC_GetContentType()
                 if specID then
                     if not ZGC_StatWeights or not ZGC_StatWeights[specID] then
-                        zgcMouseoverFallback = (specName or "?") .. " — sin stat weights"
+                        zgcMouseoverFallback = (specName or "?") .. " — no stat weights"
                         zgcMouseoverSpecName = specName
                     else
                         local total, slotsScored = ZGC_GetWeightedScore("mouseover", specID, contentType)
@@ -342,7 +348,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                                 zgcMouseoverGearRatio = total / myTotal
                             end
                         else
-                            zgcMouseoverFallback = (specName or "?") .. " — sin datos de equipo"
+                            zgcMouseoverFallback = (specName or "?") .. " — no gear data"
                             zgcMouseoverSpecName = specName
                         end
                         -- Retry si pocos slots
@@ -365,7 +371,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                         end
                     end
                 else
-                    zgcMouseoverFallback = "spec no detectada"
+                    zgcMouseoverFallback = "spec not detected"
                 end
                 zgcMouseoverReady = true
                 ZGC_InjectMouseoverTooltip()
@@ -382,7 +388,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                 local specName   = ZGC_GetSpecNameForUnit(cmpUnit)
                 local cType      = ZGC_GetContentType()
                 if not specID then
-                    print(string.format("|cff00aaff[ZinaGearCompare]|r %s — |cffaaaaaa(spec desconocida, datos incompletos)|r", name))
+                    print(string.format("|cff00aaff[ZinaGearCompare]|r %s — |cffaaaaaa(spec not detected, incomplete data)|r", name))
                 else
                     local total, slots = ZGC_GetWeightedScore(cmpUnit, specID, cType)
                     local mySpecID     = ZGC_GetSpecIDForUnit("player")
@@ -429,7 +435,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                             end
                         end
                     else
-                        print(string.format("|cff00aaff[ZinaGearCompare]|r %s — sin datos de equipo aún, vuelve a intentarlo.", name))
+                        print(string.format("|cff00aaff[ZinaGearCompare]|r %s — no gear data yet, try again.", name))
                     end
                 end
             end
@@ -485,7 +491,7 @@ SlashCmdList["ZINAGEARCOMPARE"] = function(msg)
     elseif msg == "score" or msg == "myscore" then
         local specID, specName, total, slots, cType = GetPlayerScore()
         if not specID then
-            print("|cffff8800[ZinaGearCompare]|r Spec no detectada. Abre el panel de personaje.")
+            print("|cffff8800[ZinaGearCompare]|r Spec not detected. Open the character panel.")
             return
         end
         local label = cType == "raid" and "Raid" or "M+"
