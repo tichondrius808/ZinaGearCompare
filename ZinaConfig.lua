@@ -32,6 +32,7 @@ end
 
 -- ── Config panel (Settings API) ─────────────────────────────────────────────
 local configPanel = nil
+local configCategory = nil
 
 local function CreateConfigPanel()
     if configPanel then return configPanel end
@@ -123,9 +124,8 @@ local function CreateConfigPanel()
     end)
 
     -- Register with Settings API
-    local category = Settings.RegisterCanvasLayoutCategory(configPanel, ADDON_NAME)
-    category.ID = ADDON_NAME
-    Settings.RegisterAddOnCategory(category)
+    configCategory = Settings.RegisterCanvasLayoutCategory(configPanel, ADDON_NAME)
+    Settings.RegisterAddOnCategory(configCategory)
 
     return configPanel
 end
@@ -143,7 +143,9 @@ local function InitMinimapIcon()
 
         OnClick = function(self, button)
             if button == "LeftButton" then
-                Settings.OpenToCategory(ADDON_NAME)
+                if configCategory then
+                    Settings.OpenToCategory(configCategory:GetID())
+                end
             elseif button == "RightButton" then
                 ZinaGearCompareDB.skillParity = not ZinaGearCompareDB.skillParity
                 local state = ZinaGearCompareDB.skillParity and "|cff00ff00ON|r" or "|cffff4444OFF|r"
@@ -158,6 +160,13 @@ local function InitMinimapIcon()
             tooltip:AddDoubleLine("Skill Parity:", spState, 1, 1, 1)
             local seg = ZinaGearCompareDB.paritySegment == "overall" and "Overall" or "Current"
             tooltip:AddDoubleLine("Segment:", seg, 1, 1, 1, 0.7, 0.7, 0.7)
+            local cType = ZGC_GetContentType and ZGC_GetContentType() or "?"
+            local modeLabel = cType == "raid" and "|cffFFD700Raid|r" or "|cffaad4ffM+|r"
+            local override = ZinaGearCompareDB and ZinaGearCompareDB.contentOverride
+            if not override then
+                modeLabel = modeLabel .. " |cffaaaaaa(auto)|r"
+            end
+            tooltip:AddDoubleLine("Weights:", modeLabel, 1, 1, 1)
             tooltip:AddLine(" ")
             tooltip:AddLine("|cffaaaaaaLeft-click:|r Open settings", 1, 1, 1)
             tooltip:AddLine("|cffaaaaaaRight-click:|r Toggle Skill Parity", 1, 1, 1)

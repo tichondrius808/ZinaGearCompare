@@ -17,11 +17,14 @@ local function GetPlayerDpsFromSession(playerGUID, sessionType)
     local ok, session = pcall(C_DamageMeter.GetCombatSessionFromType,
         sessionType, Enum.DamageMeterType.DamageDone)
     if not ok or not session or not session.combatSources then return nil end
-    if not session.durationSeconds or session.durationSeconds <= 0 then return nil end
+    local dur = tonumber(session.durationSeconds)
+    if not dur or dur <= 0 then return nil end
 
     for _, source in ipairs(session.combatSources) do
-        if source.sourceGUID == playerGUID then
-            return source.totalAmount, source.amountPerSecond, session.durationSeconds
+        if source.sourceGUID == tostring(playerGUID) then
+            local total = tonumber(source.totalAmount)
+            local aps   = tonumber(source.amountPerSecond)
+            return total, aps, dur
         end
     end
     return nil

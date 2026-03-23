@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-03-23
+
+### Fixed
+- Taint error in `ZinaSkillParity.lua` — `durationSeconds`, `totalAmount`,
+  `amountPerSecond`, and `sourceGUID` from `C_DamageMeter` are now sanitized
+  via `tonumber()`/`tostring()` to remove Blizzard taint (12.0+).
+- Settings panel not opening on minimap icon left-click — `Settings.OpenToCategory`
+  now receives the numeric category ID instead of a string, fixing
+  `OpenSettingsPanel` out-of-range error.
+
+### Added
+- Minimap tooltip now shows the active weight mode (M+ / Raid) and whether it
+  is auto-detected or manually overridden.
+
 ## [2.1.0] - 2026-03-13
 
 ### Added
