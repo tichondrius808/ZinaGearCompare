@@ -1,9 +1,10 @@
 -- ZinaTierSets.lua — ZinaGearCompare
 -- Detección de tier set para WoW Midnight Season 1 (The Voidspire, patch 12.0.1).
 --
--- Solo se incluyen IDs de dificultad Normal. Para Heroic, Mythic, LFR y Catalyst,
--- añadir los IDs correspondientes a la tabla ZGC_TIER_SET_ITEMS.
--- Fuente: Wowhead.com patch 12.0.1 — verificar en juego si algún ID no se detecta.
+-- WoW uses the same base item ID across all difficulties (Normal/Heroic/Mythic/LFR).
+-- Difficulty is determined by bonus IDs, not the base item ID.
+-- GetInventoryItemID() returns the base item ID, so these IDs work for all difficulties.
+-- Source: Wowhead.com patch 12.0.1
 --
 -- Set IDs de clase para GetItemSetInfo (referencia):
 --   Warrior=1990, Paladin=1985, DK=1978, DH=1979, Druid=1980,
@@ -16,7 +17,7 @@
 -- 1=Head, 3=Shoulder, 5=Chest, 10=Hands, 7=Legs
 ZGC_TIER_SLOTS = {1, 3, 5, 10, 7}
 
--- ── The Voidspire — Midnight Season 1 tier set item IDs (Normal) ─────────────
+-- ── The Voidspire — Midnight Season 1 tier set item IDs (all difficulties) ───
 ZGC_TIER_SET_ITEMS = {
 
     -- ── Warrior — Rage of the Night Ender ────────────────────────────────
@@ -123,9 +124,8 @@ ZGC_TIER_SET_ITEMS = {
     [250061] = true,  -- Hands
     [250059] = true,  -- Legs
 
-    -- ── Heroic / Mythic / LFR / Catalyst ─────────────────────────────────
-    -- TODO: Añadir IDs de otras dificultades cuando estén disponibles en Wowhead.
-    -- Patrón típico: IDs consecutivos en bloques separados por clase.
+    -- Note: Same base item IDs are used across Normal/Heroic/Mythic/LFR/Catalyst.
+    -- No additional IDs needed — difficulty is encoded in bonus IDs, not base item ID.
 }
 
 -- ── Helpers ───────────────────────────────────────────────────────────────────

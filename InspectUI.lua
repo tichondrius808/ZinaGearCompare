@@ -24,13 +24,13 @@ local function FormatRatio(ratio)
     else
         color = "|cffff4444"
     end
-    return string.format("  %s[%.0f%% vs tú]|r", color, ratio)
+    return string.format("  %s[%.0f%% vs you]|r", color, ratio)
 end
 
 local function FormatTierInfo(unit, specID)
     if not ZGC_CountTierPieces then return "" end
     local count = ZGC_CountTierPieces(unit)
-    if count == 0 then return "|cffaaaaaa(sin tier)|r" end
+    if count == 0 then return "|cffaaaaaa(no tier)|r" end
     local specWeights = ZGC_StatWeights and ZGC_StatWeights[specID]
     local bonusPct
     if count >= 4 then
@@ -51,7 +51,7 @@ function ZGC_UpdatePanel()
 
     if not inspectedUnit then
         zgcScoreText:SetText("")
-        zgcStatusText:SetText("|cffaaaaaaCargando datos de inspección…|r")
+        zgcStatusText:SetText("|cffaaaaaaLoading inspect data...|r")
         if zgcContentBtn then zgcContentBtn:Hide() end
         return
     end
@@ -60,10 +60,10 @@ function ZGC_UpdatePanel()
     local specName  = ZGC_GetSpecNameForUnit(inspectedUnit) or "?"
     local contentType = ZGC_GetContentType()
 
-    -- Score del inspeccionado
+    -- Inspected unit's score
     local inspTotal, inspSlots, inspAvg = ZGC_GetWeightedScore(inspectedUnit, specID, contentType)
 
-    -- Score del propio jugador (misma spec/content para comparación cruzada robusta)
+    -- Player's own score (same spec/content for robust cross-comparison)
     local mySpecID   = ZGC_GetSpecIDForUnit("player")
     local myCType    = contentType
     local myTotal, mySlots, myAvg = ZGC_GetWeightedScore("player", mySpecID, myCType)
@@ -73,18 +73,18 @@ function ZGC_UpdatePanel()
         ratio = (inspAvg / myAvg) * 100
     end
 
-    -- Línea principal
+    -- Main line
     if inspAvg then
         local line = string.format("|cffaad4ffGear Quality:|r  |cffffd700%.0f|r%s",
             inspTotal, FormatRatio(ratio))
         zgcScoreText:SetText(line)
     elseif not specID then
-        zgcScoreText:SetText("|cffaad4ffGear Quality:|r  |cffaaaaaa(spec desconocida)|r")
+        zgcScoreText:SetText("|cffaad4ffGear Quality:|r  |cffaaaaaa(unknown spec)|r")
     else
         zgcScoreText:SetText("|cffaad4ffGear Quality:|r  |cffaaaaaan/a|r")
     end
 
-    -- Línea de detalle: spec | content | tier | slots
+    -- Detail line: spec | content | tier | slots
     local contentLabel = ZGC_GetContentTypeLabel()
     local tierInfo     = (specID and FormatTierInfo(inspectedUnit, specID)) or ""
     local slotsStr     = string.format("|cffaaaaaa%d/%d slots|r", inspSlots, ZGC_EQUIP_SLOT_COUNT)
@@ -149,7 +149,7 @@ local function CreatePanel()
     end)
     zgcContentBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Override de contenido\nClick para ciclar: Auto → M+ → Raid → Auto", nil, nil, nil, nil, true)
+        GameTooltip:SetText("Content override\nClick to cycle: Auto > M+ > Raid > Auto", nil, nil, nil, nil, true)
         GameTooltip:Show()
     end)
     zgcContentBtn:SetScript("OnLeave", function()
@@ -172,7 +172,7 @@ local function OnInspectFrameShow()
     zgcPanel:Show()
     inspectedUnit = nil
     zgcScoreText:SetText("")
-    zgcStatusText:SetText("|cffaaaaaaCargando datos de inspección…|r")
+    zgcStatusText:SetText("|cffaaaaaaLoading inspect data...|r")
     if zgcContentBtn then zgcContentBtn:Hide() end
 end
 

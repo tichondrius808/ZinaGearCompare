@@ -8,6 +8,54 @@ local EQUIP_SLOTS = {1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}
 -- Trinket1(13), Trinket2(14), Back(15), MainHand(16), OffHand(17)
 ZGC_EQUIP_SLOT_COUNT = #EQUIP_SLOTS
 
+-- ── Weapon slots ──────────────────────────────────────────────────────────────
+local WEAPON_SLOTS = { [16] = true, [17] = true }
+
+-- Weapon ilvl bonus: scales so a 289-ilvl weapon gets ~723 points
+-- (comparable to primary stat contribution of a good armor piece)
+local WEAPON_ILVL_FACTOR = 2.5
+
+-- ── Diminishing Returns constants (Midnight 12.0.1) ──────────────────────────
+-- Rating required for 1% at level 80
+local RATING_PER_PCT = {
+    crit        = 46,
+    haste       = 44,
+    mastery     = 46,
+    versatility = 54,
+}
+
+-- DR brackets: each entry = {max_pct_in_bracket, multiplier}
+local DR_BRACKETS = {
+    { 30,  1.00 },  -- 0-30%: no penalty
+    { 39,  0.90 },  -- 30-39%: 10% penalty
+    { 47,  0.80 },  -- 39-47%: 20% penalty
+    { 54,  0.70 },  -- 47-54%: 30% penalty
+    { 66,  0.60 },  -- 54-66%: 40% penalty
+    { 126, 0.50 },  -- 66-126%: 50% penalty
+    -- 126%+: hard cap (0%)
+}
+
+-- Returns effective rating after applying WoW's DR curve
+local function ApplyDR(rawRating, statKey)
+    local rpp = RATING_PER_PCT[statKey]
+    if not rpp or rpp <= 0 then return rawRating end
+
+    local rawPct = rawRating / rpp
+    local effectivePct = 0
+    local remaining = rawPct
+    local prevCap = 0
+
+    for _, bracket in ipairs(DR_BRACKETS) do
+        local band = math.min(remaining, bracket[1] - prevCap)
+        if band <= 0 then break end
+        effectivePct = effectivePct + band * bracket[2]
+        remaining = remaining - band
+        prevCap = bracket[1]
+    end
+
+    return effectivePct * rpp
+end
+
 -- ── Mapa de stats → claves de pesos ─────────────────────────────────────────
 -- C_Item.GetItemStats() devuelve claves string tipo "ITEM_MOD_*_SHORT".
 local STAT_MAP = {
@@ -73,11 +121,11 @@ end
 
 function ZGC_DiagnoseStatKeys(itemLink)
     if not C_Item or not C_Item.GetItemStats then
-        return "C_Item.GetItemStats NO EXISTE"
+        return "C_Item.GetItemStats DOES NOT EXIST"
     end
     local stats = C_Item.GetItemStats(itemLink)
     if not stats then
-        return "directo=NIL — intentando scan tooltip…"
+        return "direct=NIL — trying scan tooltip..."
     end
     local count = 0
     local sample = {}
@@ -87,7 +135,7 @@ function ZGC_DiagnoseStatKeys(itemLink)
             sample[#sample + 1] = string.format("%s=%s", tostring(k), tostring(v))
         end
     end
-    if count == 0 then return "tabla VACÍA" end
+    if count == 0 then return "table EMPTY" end
     return string.format("OK · %d stats · %s", count, table.concat(sample, ", "))
 end
 
@@ -134,7 +182,9 @@ end
 -- esperada no aparece, se acepta CUALQUIER primary stat presente (misma magnitud).
 --
 -- Retorna número > 0, o nil si GetStatsForLink falla.
-function ZGC_ScoreItem(itemLink, weights, primaryStatToken)
+-- drFactors: optional table {crit=0.97, haste=0.85, ...} — DR efficiency per stat.
+-- When nil, no DR penalty is applied (backward-compatible for diag/standalone calls).
+function ZGC_ScoreItem(itemLink, weights, primaryStatToken, drFactors)
     if not itemLink or not weights then return nil end
 
     local statsTable = GetStatsForLink(itemLink)
@@ -147,7 +197,6 @@ function ZGC_ScoreItem(itemLink, weights, primaryStatToken)
         if statAmount and statAmount > 0 then
             local weightKey = STAT_MAP[statToken]
             if weightKey == "primary" then
-                -- Puntuar si es exactamente la primary esperada, o un hybrid (AGI+STR, tri-stat)
                 if statToken == primaryStatToken
                    or statToken == "ITEM_MOD_AGILITY_STRENGTH_SHORT"
                    or statToken == "ITEM_MOD_AGI_STR_INT_SHORT" then
@@ -155,19 +204,18 @@ function ZGC_ScoreItem(itemLink, weights, primaryStatToken)
                     primaryScored = true
                 end
             elseif weightKey and weights[weightKey] then
-                score = score + statAmount * weights[weightKey]
+                local dr = (drFactors and drFactors[weightKey]) or 1.0
+                score = score + statAmount * dr * weights[weightKey]
             end
         end
     end
 
-    -- Fallback cross-class: si la primary esperada no apareció (la API devolvió la del
-    -- viewer en vez de la del inspeccionado), aceptar cualquier primary stat presente.
-    -- El presupuesto de stat es idéntico para STR/AGI/INT al mismo ilvl.
+    -- Fallback cross-class: accept any primary stat if the expected one wasn't found
     if not primaryScored then
         for statToken, statAmount in pairs(statsTable) do
             if statAmount and statAmount > 0 and PRIMARY_STAT_TOKENS[statToken] then
                 score = score + statAmount * (weights.primary or 1.0)
-                break  -- solo una primary stat por item
+                break
             end
         end
     end
@@ -177,25 +225,65 @@ end
 
 -- ── Score completo de equipo para una unit ───────────────────────────────────
 
--- Retorna: totalScore (number), slotsScored (number), avgScore (number|nil)
+-- Retorna: totalScore (number), slotsScored (number), avgScore (number|nil), drFactors (table|nil)
 function ZGC_GetWeightedScore(unit, specID, contentType)
-    if not specID then return 0, 0, nil end
+    if not specID then return 0, 0, nil, nil end
 
     local specWeights = ZGC_StatWeights and ZGC_StatWeights[specID]
-    if not specWeights then return 0, 0, nil end
+    if not specWeights then return 0, 0, nil, nil end
 
     local ct = contentType or ZGC_GetContentType()
     local weights = specWeights[ct] or specWeights.dungeon
     local primaryToken = specWeights.primaryStat or "ITEM_MOD_AGILITY_SHORT"
 
-    local totalScore = 0
-    local slotsScored = 0
+    -- ── Pass 1: collect item links and sum total secondary ratings ──────
+    local slotLinks = {}
+    local totalRatings = { crit = 0, haste = 0, mastery = 0, versatility = 0 }
 
     for _, slotID in ipairs(EQUIP_SLOTS) do
         local itemLink = GetInventoryItemLink(unit, slotID)
         if itemLink then
-            local score = ZGC_ScoreItem(itemLink, weights, primaryToken)
+            slotLinks[slotID] = itemLink
+            local statsTable = GetStatsForLink(itemLink)
+            if statsTable then
+                for statToken, statAmount in pairs(statsTable) do
+                    if statAmount and statAmount > 0 then
+                        local weightKey = STAT_MAP[statToken]
+                        if weightKey and weightKey ~= "primary" then
+                            totalRatings[weightKey] = (totalRatings[weightKey] or 0) + statAmount
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- ── Compute DR efficiency factors ──────────────────────────────────
+    local drFactors = {}
+    for stat, total in pairs(totalRatings) do
+        if total > 0 then
+            drFactors[stat] = ApplyDR(total, stat) / total
+        else
+            drFactors[stat] = 1.0
+        end
+    end
+
+    -- ── Pass 2: score each item with DR factors + weapon ilvl bonus ────
+    local totalScore = 0
+    local slotsScored = 0
+
+    for _, slotID in ipairs(EQUIP_SLOTS) do
+        local itemLink = slotLinks[slotID]
+        if itemLink then
+            local score = ZGC_ScoreItem(itemLink, weights, primaryToken, drFactors)
             if score and score > 0 then
+                -- Weapon ilvl bonus
+                if WEAPON_SLOTS[slotID] then
+                    local ilvl = GetDetailedItemLevelInfo and GetDetailedItemLevelInfo(itemLink) or 0
+                    if ilvl and ilvl > 0 then
+                        score = score + (ilvl * WEAPON_ILVL_FACTOR)
+                    end
+                end
                 totalScore = totalScore + score
                 slotsScored = slotsScored + 1
             end
@@ -209,5 +297,5 @@ function ZGC_GetWeightedScore(unit, specID, contentType)
     end
 
     local avgScore = (slotsScored > 0) and (totalScore / slotsScored) or nil
-    return totalScore, slotsScored, avgScore
+    return totalScore, slotsScored, avgScore, drFactors
 end

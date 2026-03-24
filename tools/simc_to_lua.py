@@ -239,7 +239,7 @@ def main():
     lines.append("-- primary=1.0 es la referencia; los secondaries son fracciones relativas.")
     lines.append("--")
     lines.append(f"-- Generado automáticamente por tools/simc_to_lua.py — {today}")
-    lines.append("-- Fuente: SimulationCraft nightly, perfiles MID1 (Midnight 12.0.1)")
+    lines.append("-- Fuente: SimulationCraft nightly, perfiles MID1 (Midnight 12.0.1), gear_ilevel=240")
     lines.append("-- Fight styles: Patchwerk (raid) · DungeonSlice (dungeon/M+)")
     lines.append("-- Specs sin perfil MID1 marcadas como 'estimado'.")
     lines.append("--")
@@ -306,8 +306,15 @@ def main():
                 lines.append(f"    -- [{spec_id}] {spec_name}: SIN DATOS — se omite")
                 continue
 
+            # Determine source field
+            if source == "simc":
+                source_field = "SimC MID1"
+            else:
+                source_field = "Estimated"
+
             lines.append(f"    [{spec_id}] = {{ -- {spec_name} — {order_str} | {nota}")
             lines.append(f"        primaryStat  = \"{primary_token}\",")
+            lines.append(f"        source       = \"{source_field}\",")
             lines.append(f"        dungeon      = {weights_line(w_dungeon)},")
             lines.append(f"        raid         = {weights_line(w_raid)},")
             lines.append(f"        tierBonus2pc = {tier2pc},")

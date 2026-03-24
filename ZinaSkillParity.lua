@@ -78,7 +78,7 @@ end
 -- Verifica si C_DamageMeter está disponible y activo.
 function ZGC_SkillParity.IsAvailable()
     if not C_DamageMeter or not C_DamageMeter.IsDamageMeterAvailable then
-        return false, "C_DamageMeter no disponible"
+        return false, "C_DamageMeter not available"
     end
     local available, reason = C_DamageMeter.IsDamageMeterAvailable()
     return available, reason
