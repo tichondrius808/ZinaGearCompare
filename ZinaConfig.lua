@@ -6,7 +6,8 @@ local ICON_TEXTURE = 132089  -- INV_Chest_Plate16
 
 -- ── DB defaults for config ──────────────────────────────────────────────────
 local CONFIG_DEFAULTS = {
-    gearCompare    = true,
+    mouseoverIlvl  = true,
+    mouseoverPct   = true,
     minimap        = { hide = false },
 }
 
@@ -99,28 +100,55 @@ local function CreateConfigPanel()
 
     yOffset = yOffset - 80
 
-    -- ── Gear Compare (simplified) ─────────────────────────────────────
-    local gcHeader = configPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    gcHeader:SetPoint("TOPLEFT", 16, yOffset)
-    gcHeader:SetText("Gear Compare (Mouseover)")
+    -- ── Player Tooltip (mouseover ilvl + tier) ────────────────────────
+    local moHeader = configPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    moHeader:SetPoint("TOPLEFT", 16, yOffset)
+    moHeader:SetText("Player Tooltip (Mouseover)")
 
     yOffset = yOffset - 22
 
-    local gcCheck = CreateFrame("CheckButton", "ZGCConfigGearCompare", configPanel, "InterfaceOptionsCheckButtonTemplate")
-    gcCheck:SetPoint("TOPLEFT", 16, yOffset)
-    gcCheck.Text:SetText("Show gear comparison on player tooltips")
+    local moCheck = CreateFrame("CheckButton", "ZGCConfigMouseoverIlvl", configPanel, "InterfaceOptionsCheckButtonTemplate")
+    moCheck:SetPoint("TOPLEFT", 16, yOffset)
+    moCheck.Text:SetText("Show average ilvl and tier set on player tooltips")
 
     yOffset = yOffset - 25
 
-    local gcDesc = configPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    gcDesc:SetPoint("TOPLEFT", 40, yOffset)
-    gcDesc:SetWidth(400)
-    gcDesc:SetJustifyH("LEFT")
-    gcDesc:SetText("|cffaaaaaaRudimentary comparison: shows avg item level and tier set\n" ..
-        "pieces for you vs the inspected player. This is a rough estimate\n" ..
-        "and does NOT account for stat weights, trinket effects, etc.|r")
+    local pctCheck = CreateFrame("CheckButton", "ZGCConfigMouseoverPct", configPanel, "InterfaceOptionsCheckButtonTemplate")
+    pctCheck:SetPoint("TOPLEFT", 30, yOffset)
+    pctCheck.Text:SetText("Show ilvl difference as percentage")
 
-    yOffset = yOffset - 55
+    yOffset = yOffset - 25
+
+    local moDesc = configPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    moDesc:SetPoint("TOPLEFT", 40, yOffset)
+    moDesc:SetWidth(400)
+    moDesc:SetJustifyH("LEFT")
+    moDesc:SetText("|cffaaaaaaWhen hovering over another player, shows their average item\n" ..
+        "level compared to yours, plus tier set pieces for both.|r")
+
+    yOffset = yOffset - 45
+
+    -- ── Sim Performance Panel ───────────────────────────────────────
+    local simHeader = configPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    simHeader:SetPoint("TOPLEFT", 16, yOffset)
+    simHeader:SetText("Sim Performance Panel")
+
+    yOffset = yOffset - 22
+
+    local simCheck = CreateFrame("CheckButton", "ZGCConfigSimPanel", configPanel, "InterfaceOptionsCheckButtonTemplate")
+    simCheck:SetPoint("TOPLEFT", 16, yOffset)
+    simCheck.Text:SetText("Show Sim Performance panel (actual DPS vs sim)")
+
+    yOffset = yOffset - 22
+
+    local simDesc = configPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    simDesc:SetPoint("TOPLEFT", 40, yOffset)
+    simDesc:SetWidth(400)
+    simDesc:SetJustifyH("LEFT")
+    simDesc:SetText("|cffaaaaaaSmall floating panel showing your actual DPS (from Details!) vs\n" ..
+        "your sim DPS (from Raidbots). Toggle with /zgc sim.|r")
+
+    yOffset = yOffset - 40
 
     -- ── Raidbots Status ───────────────────────────────────────────────
     local rbHeader = configPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -153,10 +181,13 @@ local function CreateConfigPanel()
         "|cffffd7003.|r Paste the report URL and choose 'st' or 'aoe'\n" ..
         "|cffffd7004.|r /reload in game")
 
-    -- ── OnShow: update dynamic content ────────────────────────────────
-    configPanel:SetScript("OnShow", function()
+    -- ── Refresh: update dynamic content ─────────────────────────────
+    local function RefreshConfigPanel()
         UpdateModeRadios()
-        gcCheck:SetChecked(ZinaGearCompareDB.gearCompare ~= false)
+        moCheck:SetChecked(ZinaGearCompareDB.mouseoverIlvl ~= false)
+        pctCheck:SetChecked(ZinaGearCompareDB.mouseoverPct ~= false)
+        local simVis = ZinaGearCompareDB.simPanel and ZinaGearCompareDB.simPanel.visible or false
+        simCheck:SetChecked(simVis)
 
         -- Raidbots status
         local rbInfo = ZGC_GetRaidbotsTooltipInfo and ZGC_GetRaidbotsTooltipInfo()
@@ -164,7 +195,7 @@ local function CreateConfigPanel()
             local lines = {}
             for _, info in ipairs(rbInfo) do
                 table.insert(lines, string.format(
-                    "|cffffd700%s:|r  %s  —  %.0fk DPS baseline  —  %d items simmed",
+                    "|cffffd700%s:|r  %s  —  %.1fk DPS baseline  —  %d items simmed",
                     info.label, info.date, info.dps / 1000, info.items))
             end
             rbStatus:SetText("|cff00ff00Data loaded|r")
@@ -173,10 +204,28 @@ local function CreateConfigPanel()
             rbStatus:SetText("|cffff4444No Raidbots data imported|r")
             rbDetails:SetText("")
         end
-    end)
+    end
 
-    gcCheck:SetScript("OnClick", function(self)
-        ZinaGearCompareDB.gearCompare = self:GetChecked()
+    -- Set initial state at creation time
+    RefreshConfigPanel()
+
+    -- HookScript so Settings API cannot overwrite our handler
+    configPanel:HookScript("OnShow", RefreshConfigPanel)
+
+    moCheck:SetScript("OnClick", function(self)
+        local v = not ZinaGearCompareDB.mouseoverIlvl
+        ZinaGearCompareDB.mouseoverIlvl = v
+        self:SetChecked(v)
+    end)
+    pctCheck:SetScript("OnClick", function(self)
+        local v = not ZinaGearCompareDB.mouseoverPct
+        ZinaGearCompareDB.mouseoverPct = v
+        self:SetChecked(v)
+    end)
+    simCheck:SetScript("OnClick", function(self)
+        local show = not (ZinaGearCompareDB.simPanel and ZinaGearCompareDB.simPanel.visible)
+        self:SetChecked(show)
+        if ZGC_ToggleSimPanel then ZGC_ToggleSimPanel(show) end
     end)
 
     -- Register with Settings API
@@ -275,31 +324,45 @@ function CreateAppearancePanel(parentCategory)
     ttDesc:SetText("|cffaaaaaaControl which lines appear when hovering over items.\n" ..
         "The active mode line is always highlighted; the other is dimmed.|r")
 
-    -- ── OnShow ────────────────────────────────────────────────────────
-    panel:SetScript("OnShow", function()
+    -- ── Refresh checkbox state ───────────────────────────────────────
+    local function RefreshAppearancePanel()
         InitAppearanceDB()
         local a = ZinaGearCompareDB.appearance
         glowCheck:SetChecked(a.showBagGlow)
         ttST:SetChecked(a.showTooltipST)
         ttAoE:SetChecked(a.showTooltipAoE)
         ttDate:SetChecked(a.showTooltipDate)
-    end)
+    end
+
+    -- Set initial state at creation time
+    RefreshAppearancePanel()
+
+    -- HookScript so Settings API cannot overwrite our handler
+    panel:HookScript("OnShow", RefreshAppearancePanel)
 
     glowCheck:SetScript("OnClick", function(self)
         InitAppearanceDB()
-        ZinaGearCompareDB.appearance.showBagGlow = self:GetChecked()
+        local v = not ZinaGearCompareDB.appearance.showBagGlow
+        ZinaGearCompareDB.appearance.showBagGlow = v
+        self:SetChecked(v)
     end)
     ttST:SetScript("OnClick", function(self)
         InitAppearanceDB()
-        ZinaGearCompareDB.appearance.showTooltipST = self:GetChecked()
+        local v = not ZinaGearCompareDB.appearance.showTooltipST
+        ZinaGearCompareDB.appearance.showTooltipST = v
+        self:SetChecked(v)
     end)
     ttAoE:SetScript("OnClick", function(self)
         InitAppearanceDB()
-        ZinaGearCompareDB.appearance.showTooltipAoE = self:GetChecked()
+        local v = not ZinaGearCompareDB.appearance.showTooltipAoE
+        ZinaGearCompareDB.appearance.showTooltipAoE = v
+        self:SetChecked(v)
     end)
     ttDate:SetScript("OnClick", function(self)
         InitAppearanceDB()
-        ZinaGearCompareDB.appearance.showTooltipDate = self:GetChecked()
+        local v = not ZinaGearCompareDB.appearance.showTooltipDate
+        ZinaGearCompareDB.appearance.showTooltipDate = v
+        self:SetChecked(v)
     end)
 
     -- Register sub-category
@@ -368,15 +431,35 @@ local function InitMinimapIcon()
                         or  string.format("|cff666666%s|r", info.specName)
                     tooltip:AddDoubleLine(
                         string.format("Raidbots %s:", info.label),
-                        string.format("%s  %s  |cffaaaaaa(%.0fk · %d items)|r",
+                        string.format("%s  %s  |cffaaaaaa(%.1fk · %d items)|r",
                             info.date, specTag, info.dps / 1000, info.items),
                         0, 0.67, 1, 0.7, 0.7, 0.7)
+                end
+
+                -- Slot coverage for the active sim type
+                if ZGC_GetSlotCoverage then
+                    local simmed, equipped, unsimmed = ZGC_GetSlotCoverage()
+                    if equipped > 0 then
+                        tooltip:AddLine(" ")
+                        local covCol = simmed == equipped and "|cff00ff00" or "|cffFFD700"
+                        tooltip:AddLine(string.format(
+                            "Slot coverage: %s%d/%d|r equipped slots simulated",
+                            covCol, simmed, equipped))
+                        if #unsimmed > 0 then
+                            for _, slot in ipairs(unsimmed) do
+                                tooltip:AddLine(string.format(
+                                    "  |cffff8800!|r %s: |cffffffff%s|r |cffaaaaaa(%d)|r",
+                                    slot.label, slot.name, slot.ilvl))
+                            end
+                        end
+                    end
                 end
             end
 
             tooltip:AddLine(" ")
             tooltip:AddLine("|cffaaaaaaLeft-click:|r Open settings", 1, 1, 1)
             tooltip:AddLine("|cffaaaaaaRight-click:|r Cycle mode (Auto/M+/Raid)", 1, 1, 1)
+            tooltip:AddLine("|cffaaaaaa/zgc sim:|r Toggle DPS performance panel", 1, 1, 1)
         end,
     })
 
@@ -386,6 +469,7 @@ end
 -- ── Public init (called from ZinaGearCompare.lua ADDON_LOADED) ──────────────
 function ZGC_InitConfig()
     InitConfigDB()
+    InitAppearanceDB()
     CreateConfigPanel()
     local ok, err = pcall(InitMinimapIcon)
     if not ok then

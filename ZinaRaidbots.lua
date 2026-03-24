@@ -283,6 +283,29 @@ end
 
 -- ── Public: sim info for minimap tooltip ─────────────────────────────────────
 
+-- Map WoW inventory slot IDs to Raidbots slot names
+local EQUIP_SLOT_TO_SIM = {
+    [1]  = "head",    [2]  = "neck",     [3]  = "shoulder",
+    [5]  = "chest",   [6]  = "waist",    [7]  = "legs",
+    [8]  = "feet",    [9]  = "wrist",    [10] = "hands",
+    [11] = "finger1", [12] = "finger2",
+    [13] = "trinket1",[14] = "trinket2",
+    [15] = "back",
+    [16] = "main_hand", [17] = "off_hand",
+}
+
+local EQUIP_SLOT_LABEL = {
+    [1]  = "Head",    [2]  = "Neck",     [3]  = "Shoulder",
+    [5]  = "Chest",   [6]  = "Waist",    [7]  = "Legs",
+    [8]  = "Feet",    [9]  = "Wrist",    [10] = "Hands",
+    [11] = "Ring 1",  [12] = "Ring 2",
+    [13] = "Trinket 1",[14] = "Trinket 2",
+    [15] = "Back",
+    [16] = "Main Hand", [17] = "Off Hand",
+}
+
+local EQUIP_SLOT_IDS = {1,2,3,5,6,7,8,9,10,11,12,13,14,15,16,17}
+
 function ZGC_GetRaidbotsTooltipInfo()
     if not ZGC_RaidbotsData then return nil end
     local lines = {}
@@ -293,6 +316,20 @@ function ZGC_GetRaidbotsTooltipInfo()
             if d.items then for _ in pairs(d.items) do n = n + 1 end end
             local dateStr = GetFullDate(key) or "?"
             local active = IsSimForCurrentSpec(d)
+
+            -- Collect simulated slot names from items + bestBySlot
+            local simSlots = {}
+            if d.items then
+                for _, item in pairs(d.items) do
+                    if item.slot then simSlots[item.slot] = true end
+                end
+            end
+            if d.bestBySlot then
+                for slot in pairs(d.bestBySlot) do
+                    simSlots[slot] = true
+                end
+            end
+
             table.insert(lines, {
                 label    = key:upper(),
                 date     = dateStr,
@@ -300,10 +337,61 @@ function ZGC_GetRaidbotsTooltipInfo()
                 dps      = d.bestComboDPS or d.baselineDPS or 0,
                 specName = d.specName or "?",
                 active   = active,
+                simSlots = simSlots,
             })
         end
     end
     return #lines > 0 and lines or nil
+end
+
+--- Returns slot coverage info for the active sim type.
+--- @return number simmedSlots, number equippedSlots, table unsimmedList
+function ZGC_GetSlotCoverage()
+    if not ZGC_RaidbotsData then return 0, 0, {} end
+    local key = GetSimKey()
+    local d = ZGC_RaidbotsData[key]
+    if not d or not IsSimForCurrentSpec(d) then return 0, 0, {} end
+
+    -- Collect simulated slots
+    local simSlots = {}
+    if d.items then
+        for _, item in pairs(d.items) do
+            if item.slot then simSlots[item.slot] = true end
+        end
+    end
+    if d.bestBySlot then
+        for slot in pairs(d.bestBySlot) do
+            simSlots[slot] = true
+        end
+    end
+
+    local equipped = 0
+    local simmed = 0
+    local unsimmed = {}
+
+    for _, slotID in ipairs(EQUIP_SLOT_IDS) do
+        local link = GetInventoryItemLink("player", slotID)
+        if link then
+            local ilvl = GetDetailedItemLevelInfo and GetDetailedItemLevelInfo(link) or 0
+            if ilvl and ilvl >= 200 then
+                equipped = equipped + 1
+                local simName = EQUIP_SLOT_TO_SIM[slotID]
+                if simName and simSlots[simName] then
+                    simmed = simmed + 1
+                else
+                    local label = EQUIP_SLOT_LABEL[slotID] or "?"
+                    local itemName = link:match("%[(.-)%]") or "?"
+                    table.insert(unsimmed, {
+                        label = label,
+                        name  = itemName,
+                        ilvl  = ilvl,
+                    })
+                end
+            end
+        end
+    end
+
+    return simmed, equipped, unsimmed
 end
 
 -- ── Slash command: /zgc raidbots ────────────────────────────────────────────

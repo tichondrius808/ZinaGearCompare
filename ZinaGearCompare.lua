@@ -1,7 +1,6 @@
 -- ZinaGearCompare.lua — Addon entry point
--- Independent engine (no Pawn dependency). Requires ZinaStatWeights, ZinaTierSets, ZinaContentDetector.
---
--- STATUS: PAUSED / UNDER DEVELOPMENT — all functionality disabled.
+-- Mouseover tooltip: ilvl comparison + tier set (uses Blizzard API, no stat weights).
+-- Item scoring (PaperDoll, InspectUI): uses ZinaStatWeights + Scoring.lua.
 
 local ADDON_NAME = "ZinaGearCompare"
 local ZGC_PAUSED = false
@@ -73,11 +72,10 @@ end
 -- ── Mouseover inspection cache ──────────────────────────────────────────────
 local zgcMouseoverName      = nil
 local zgcMouseoverRealm     = nil
-local zgcMouseoverScore     = nil
-local zgcMouseoverSpecName  = nil
-local zgcMouseoverGearRatio = nil
-local zgcMouseoverTierCount = nil
-local zgcMouseoverGUID      = nil
+local zgcMouseoverTheirIlvl = nil
+local zgcMouseoverMyIlvl    = nil
+local zgcMouseoverTheirTier = nil
+local zgcMouseoverMyTier    = nil
 local zgcMouseoverFallback  = nil
 local zgcMouseoverReady     = false
 local zgcMouseoverPending   = false
@@ -97,37 +95,41 @@ local function AddMouseoverTooltipLines(tooltip)
         tooltip:Show()
         return
     end
-    if not zgcMouseoverScore or not zgcMouseoverSpecName then return end
-    local ratioStr = ""
-    if zgcMouseoverGearRatio then
-        local pct = zgcMouseoverGearRatio * 100
-        local col = pct < 80 and "|cffff4444" or pct <= 100 and "|cffffd700" or "|cff00ff00"
-        ratioStr = string.format(" · %s%.0f%%|r", col, pct)
-    end
-    local tierStr = ""
-    if zgcMouseoverTierCount and zgcMouseoverTierCount >= 4 then
-        tierStr = " |cffFFD7004pc|r"
-    elseif zgcMouseoverTierCount and zgcMouseoverTierCount >= 2 then
-        tierStr = " |cffaad4ff2pc|r"
-    end
-    tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffffd700%.0f|r |cffaaaaaa(%s%s)|r%s",
-        zgcMouseoverScore, zgcMouseoverSpecName, ratioStr, tierStr))
+    if not zgcMouseoverTheirIlvl then return end
 
-    -- Simple gear comparison: avg ilvl + tier (rudimentary)
-    if ZinaGearCompareDB and ZinaGearCompareDB.gearCompare ~= false
-       and zgcMouseoverGearRatio then
-        -- Get tier info for both
-        local myTier  = ZGC_CountTierPieces and ZGC_CountTierPieces("player") or 0
-        local thTier  = zgcMouseoverTierCount or 0
-        local pct = zgcMouseoverGearRatio * 100
-        local tierDiff = ""
-        if myTier ~= thTier then
-            local col = myTier > thTier and "|cff00ff00" or "|cffff4444"
-            tierDiff = string.format("  %sTier %d vs %d|r", col, myTier, thTier)
+    -- ilvl line: "ZGC: ilvl 623 (you: 618)  +0.8%"
+    local ilvlLine
+    local theirIlvl = zgcMouseoverTheirIlvl
+    if zgcMouseoverMyIlvl and zgcMouseoverMyIlvl > 0 then
+        local diff = theirIlvl - zgcMouseoverMyIlvl
+        local col = diff > 2 and "|cff00ff00" or diff < -2 and "|cffff4444" or "|cffffd700"
+        local pctSuffix = ""
+        if ZinaGearCompareDB and ZinaGearCompareDB.mouseoverPct ~= false then
+            local pct = (theirIlvl / zgcMouseoverMyIlvl - 1) * 100
+            local sign = pct >= 0 and "+" or ""
+            pctSuffix = string.format("  %s%s%.1f%%|r", col, sign, pct)
         end
-        tooltip:AddLine(string.format("  |cff888888Gear: %.0f%% of theirs%s|r", pct, tierDiff))
+        ilvlLine = string.format("|cff00aaffZGC:|r %silvl %.0f|r |cffaaaaaa(you: %.0f)|r%s",
+            col, theirIlvl, zgcMouseoverMyIlvl, pctSuffix)
+    else
+        ilvlLine = string.format("|cff00aaffZGC:|r |cffffd700ilvl %.0f|r", theirIlvl)
     end
 
+    -- tier line: "Tier 4pc (you: 2pc)"
+    local tierLine = ""
+    local theirTier = zgcMouseoverTheirTier or 0
+    local myTier    = zgcMouseoverMyTier or 0
+    if theirTier > 0 or myTier > 0 then
+        local theirTag = theirTier >= 4 and "4pc" or theirTier >= 2 and "2pc" or "0pc"
+        local myTag    = myTier >= 4 and "4pc" or myTier >= 2 and "2pc" or "0pc"
+        local col = theirTier > myTier and "|cff00ff00" or theirTier < myTier and "|cffff4444" or "|cffffd700"
+        tierLine = string.format("  %sTier %s|r |cffaaaaaa(you: %s)|r", col, theirTag, myTag)
+    end
+
+    tooltip:AddLine(ilvlLine)
+    if tierLine ~= "" then
+        tooltip:AddLine(tierLine)
+    end
     tooltip:Show()
 end
 
@@ -150,11 +152,10 @@ local function ZGC_TryMouseoverInspect()
     if n == zgcMouseoverName and r == zgcMouseoverRealm then return end
     zgcMouseoverName      = nil
     zgcMouseoverRealm     = nil
-    zgcMouseoverScore     = nil
-    zgcMouseoverSpecName  = nil
-    zgcMouseoverGearRatio = nil
-    zgcMouseoverTierCount = nil
-    zgcMouseoverGUID      = nil
+    zgcMouseoverTheirIlvl = nil
+    zgcMouseoverMyIlvl    = nil
+    zgcMouseoverTheirTier = nil
+    zgcMouseoverMyTier    = nil
     zgcMouseoverFallback  = nil
     zgcMouseoverReady     = false
     zgcMouseoverPending   = true
@@ -173,11 +174,10 @@ local function ZGC_CheckMouseover()
     local n, r = ZGC_GetMouseoverNameRealm()
     if n == zgcMouseoverName and r == zgcMouseoverRealm then return end
     zgcMouseoverReady     = false
-    zgcMouseoverScore     = nil
-    zgcMouseoverSpecName  = nil
-    zgcMouseoverGearRatio = nil
-    zgcMouseoverTierCount = nil
-    zgcMouseoverGUID      = nil
+    zgcMouseoverTheirIlvl = nil
+    zgcMouseoverMyIlvl    = nil
+    zgcMouseoverTheirTier = nil
+    zgcMouseoverMyTier    = nil
     zgcMouseoverFallback  = nil
     zgcMouseoverWaiting   = true
     C_Timer.After(0.1, ZGC_TryMouseoverInspect)
@@ -188,29 +188,26 @@ local function HookGameTooltip()
     if not TooltipDataProcessor then return end
     TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(tooltip, data)
         if not data then return end
+        if not ZinaGearCompareDB or ZinaGearCompareDB.mouseoverIlvl == false then return end
 
-        -- Own player (don't compare guid — it's secret/tainted in 12.0+)
+        -- Own player
         if UnitExists("mouseover") and UnitIsUnit("mouseover", "player") then
-            local specID, specName, total, _, contentType = GetPlayerScore()
-            if specName and total and total > 0 then
-                local label = contentType == "raid" and "Raid" or "M+"
-                local tierTag = ZGC_TierTag("player")
-                tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffffd700%.0f|r |cffaaaaaa(%s · %s%s)|r",
-                    total, specName, label, tierTag))
-            elseif specID and (not ZGC_StatWeights or not ZGC_StatWeights[specID]) then
-                tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffaaaaaa%s — no stat weights|r", specName or "?"))
-            elseif not specID then
-                tooltip:AddLine("|cff00aaffZGC:|r |cffaaaaaaspec not detected|r")
+            local _, avgEquipped = GetAverageItemLevel()
+            if avgEquipped and avgEquipped > 0 then
+                local tierCount = ZGC_CountTierPieces and ZGC_CountTierPieces("player") or 0
+                local tierTag = tierCount >= 4 and " |cffFFD7004pc|r" or tierCount >= 2 and " |cffaad4ff2pc|r" or ""
+                tooltip:AddLine(string.format("|cff00aaffZGC:|r |cffffd700ilvl %.0f|r%s",
+                    avgEquipped, tierTag))
             end
             tooltip:Show()
             return
         end
 
-        -- Other player: show cached score or loading
+        -- Other player: show cached data or loading/error
         if not UnitIsPlayer("mouseover") then return end
         if not zgcMouseoverReady then
             if zgcMouseoverPending or zgcMouseoverWaiting then
-                tooltip:AddLine("|cff00aaffZGC:|r |cffaaaaaaloading...|r")
+                tooltip:AddLine("|cff00aaffZGC:|r |cffaaaaaainspecting gear...|r")
                 tooltip:Show()
             end
             return
@@ -299,6 +296,7 @@ local function OnAddonLoaded(addonName)
     ZGC_InitConfig()
     ZGC_InitUI()
     InitPaperDoll()
+    if ZGC_InitSimPanel then ZGC_InitSimPanel() end
     pcall(HookGameTooltip)
 
     -- Try Details! init immediately if already loaded, otherwise defer
@@ -357,105 +355,66 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         end
         OnInspectReady(unit or pendingUnit)
 
-        -- Mouseover path
+        -- Mouseover path — ilvl + tier comparison
         if zgcMouseoverPending then
             zgcMouseoverPending = false
             if UnitIsPlayer("mouseover") then
                 local n, r = ZGC_GetMouseoverNameRealm()
                 zgcMouseoverName  = n
                 zgcMouseoverRealm = r
-                zgcMouseoverGUID  = UnitGUID("mouseover")
-                local specID      = ZGC_GetSpecIDForUnit("mouseover")
-                local specName    = ZGC_GetSpecNameForUnit("mouseover")
-                local contentType = ZGC_GetContentType()
-                if specID then
-                    if not ZGC_StatWeights or not ZGC_StatWeights[specID] then
-                        zgcMouseoverFallback = (specName or "?") .. " — no stat weights"
-                        zgcMouseoverSpecName = specName
-                    else
-                        local total, slotsScored = ZGC_GetWeightedScore("mouseover", specID, contentType)
-                        zgcMouseoverTierCount = ZGC_CountTierPieces("mouseover")
-                        if total and total > 0 then
-                            zgcMouseoverScore    = total
-                            zgcMouseoverSpecName = specName
-                            local mySpecID   = ZGC_GetSpecIDForUnit("player")
-                            local myTotal    = ZGC_GetWeightedScore("player", mySpecID, contentType)
-                            if myTotal and myTotal > 0 then
-                                zgcMouseoverGearRatio = total / myTotal
-                            end
-                        else
-                            zgcMouseoverFallback = (specName or "?") .. " — no gear data"
-                            zgcMouseoverSpecName = specName
-                        end
-                        -- Retry if few slots scored
-                        if slotsScored < 8 then
-                            C_Timer.After(1.5, function()
-                                if zgcMouseoverName ~= n then return end
-                                if not UnitIsPlayer("mouseover") then return end
-                                local retryTotal, retrySlotsScored = ZGC_GetWeightedScore("mouseover", specID, contentType)
-                                if retryTotal and retryTotal > 0 and retrySlotsScored > slotsScored then
-                                    zgcMouseoverScore = retryTotal
-                                    zgcMouseoverFallback = nil
-                                    local mySpecID2 = ZGC_GetSpecIDForUnit("player")
-                                    local myTotal2  = ZGC_GetWeightedScore("player", mySpecID2, contentType)
-                                    if myTotal2 and myTotal2 > 0 then
-                                        zgcMouseoverGearRatio = retryTotal / myTotal2
-                                    end
-                                    ZGC_InjectMouseoverTooltip()
-                                end
-                            end)
-                        end
-                    end
+
+                -- Their average ilvl (Blizzard API)
+                local theirIlvl = C_PaperDollInfo and C_PaperDollInfo.GetInspectItemLevel("mouseover")
+                if theirIlvl and theirIlvl > 0 then
+                    zgcMouseoverTheirIlvl = theirIlvl
+                    -- Our average ilvl
+                    local _, myEquipped = GetAverageItemLevel()
+                    zgcMouseoverMyIlvl = myEquipped or 0
+                    -- Tier pieces
+                    zgcMouseoverTheirTier = ZGC_CountTierPieces and ZGC_CountTierPieces("mouseover") or 0
+                    zgcMouseoverMyTier    = ZGC_CountTierPieces and ZGC_CountTierPieces("player") or 0
                 else
-                    zgcMouseoverFallback = "spec not detected"
+                    -- ilvl came back as 0 — gear data not ready, retry once
+                    zgcMouseoverFallback = "gear data not available"
+                    C_Timer.After(1.5, function()
+                        if zgcMouseoverName ~= n then return end
+                        if not UnitIsPlayer("mouseover") then return end
+                        local retryIlvl = C_PaperDollInfo and C_PaperDollInfo.GetInspectItemLevel("mouseover")
+                        if retryIlvl and retryIlvl > 0 then
+                            zgcMouseoverTheirIlvl = retryIlvl
+                            local _, myEq = GetAverageItemLevel()
+                            zgcMouseoverMyIlvl = myEq or 0
+                            zgcMouseoverTheirTier = ZGC_CountTierPieces and ZGC_CountTierPieces("mouseover") or 0
+                            zgcMouseoverMyTier    = ZGC_CountTierPieces and ZGC_CountTierPieces("player") or 0
+                            zgcMouseoverFallback  = nil
+                            ZGC_InjectMouseoverTooltip()
+                        end
+                    end)
                 end
                 zgcMouseoverReady = true
                 ZGC_InjectMouseoverTooltip()
             end
         end
 
-        -- /zgc compare path
+        -- /zgc compare path — ilvl + tier
         if zgcPrintPending then
             zgcPrintPending = false
             local cmpUnit = pendingUnit or "target"
             if cmpUnit then
-                local name       = UnitName(cmpUnit) or "?"
-                local specID     = ZGC_GetSpecIDForUnit(cmpUnit)
-                local specName   = ZGC_GetSpecNameForUnit(cmpUnit)
-                local cType      = ZGC_GetContentType()
-                if not specID then
-                    print(string.format("|cff00aaff[ZinaGearCompare]|r %s — |cffaaaaaa(spec not detected, incomplete data)|r", name))
+                local name = UnitName(cmpUnit) or "?"
+                local theirIlvl = C_PaperDollInfo and C_PaperDollInfo.GetInspectItemLevel(cmpUnit)
+                if theirIlvl and theirIlvl > 0 then
+                    local _, myEquipped = GetAverageItemLevel()
+                    local theirTier = ZGC_CountTierPieces and ZGC_CountTierPieces(cmpUnit) or 0
+                    local myTier    = ZGC_CountTierPieces and ZGC_CountTierPieces("player") or 0
+                    local diff = theirIlvl - (myEquipped or 0)
+                    local col = diff > 2 and "|cff00ff00" or diff < -2 and "|cffff4444" or "|cffffd700"
+                    local theirTag = theirTier >= 4 and "4pc" or theirTier >= 2 and "2pc" or "0pc"
+                    local myTag    = myTier >= 4 and "4pc" or myTier >= 2 and "2pc" or "0pc"
+                    print(string.format("|cff00aaff[ZGC]|r %s — %silvl %.0f|r |cffaaaaaa(you: %.0f)|r  Tier: %s |cffaaaaaa(you: %s)|r",
+                        name, col, theirIlvl, myEquipped or 0, theirTag, myTag))
                 else
-                    local total, slots = ZGC_GetWeightedScore(cmpUnit, specID, cType)
-                    local mySpecID     = ZGC_GetSpecIDForUnit("player")
-                    local mySpecName   = ZGC_GetSpecNameForUnit("player")
-                    local myTotal, mySlots = ZGC_GetWeightedScore("player", mySpecID, cType)
-                    if total and total > 0 then
-                        local label = cType == "raid" and "Raid" or "M+"
-                        local tierCount = ZGC_CountTierPieces(cmpUnit)
-                        local tierStr = tierCount >= 4 and " · 4pc" or tierCount >= 2 and " · 2pc" or ""
-                        -- Line 1: name, spec, both scores and label
-                        if myTotal and myTotal > 0 then
-                            local gearRatio = total / myTotal
-                            local pct = gearRatio * 100
-                            local col = pct < 80 and "|cffff4444" or pct <= 100 and "|cffffd700" or "|cff00ff00"
-                            print(string.format("|cff00aaff[ZGC]|r %s |cffaaaaaa(%s)|r — Score: |cffffd700%.0f|r vs |cffaaaaaa%.0f yours|r  %s%.0f%%|r |cffaaaaaa(%s%s)|r",
-                                name, specName or "?", total, myTotal, col, pct, label, tierStr))
-                        else
-                            print(string.format("|cff00aaff[ZGC]|r %s |cffaaaaaa(%s)|r — Score: |cffffd700%.0f|r |cffaaaaaa(%s%s)|r",
-                                name, specName or "?", total, label, tierStr))
-                        end
-                        -- Line 2: Tier comparison
-                        if myTotal and myTotal > 0 then
-                            local myTier = ZGC_CountTierPieces and ZGC_CountTierPieces("player") or 0
-                            if myTier ~= tierCount then
-                                local col = myTier > tierCount and "|cff00ff00" or "|cffff4444"
-                                print(string.format("  %sTier: you %d vs them %d|r", col, myTier, tierCount))
-                            end
-                        end
-                    else
-                        print(string.format("|cff00aaff[ZinaGearCompare]|r %s — no gear data yet, try again.", name))
-                    end
+                    print(string.format("|cff00aaff[ZGC]|r %s — gear data not available, try again.", name))
                 end
             end
         end
@@ -516,16 +475,13 @@ SlashCmdList["ZINAGEARCOMPARE"] = function(msg)
         NotifyInspect("target")
 
     elseif msg == "score" or msg == "myscore" then
-        local specID, specName, total, slots, cType = GetPlayerScore()
-        if not specID then
-            print("|cffff8800[ZinaGearCompare]|r Spec not detected. Open the character panel.")
-            return
-        end
-        local label = cType == "raid" and "Raid" or "M+"
+        local _, avgEquipped = GetAverageItemLevel()
         local tierCount = ZGC_CountTierPieces and ZGC_CountTierPieces("player") or 0
+        local specName  = ZGC_GetSpecNameForUnit("player") or "unknown"
+        local tierTag   = tierCount >= 4 and "4pc" or tierCount >= 2 and "2pc" or "0pc"
         print(string.format(
-            "|cff00aaff[ZinaGearCompare]|r My score: |cffffd700%.0f|r | %d slots | %s | %s | Tier: %dpc",
-            total, slots, specName or "?", label, tierCount))
+            "|cff00aaff[ZGC]|r %s — |cffffd700ilvl %.0f|r  Tier: %s",
+            specName, avgEquipped or 0, tierTag))
 
     elseif msg:match("^mode%s+") then
         local mode = msg:match("^mode%s+(%S+)")
@@ -723,6 +679,20 @@ SlashCmdList["ZINAGEARCOMPARE"] = function(msg)
         ZinaGearCompareDB.lastDiag = table.concat(log, "\n")
         L("|cff00aaff[ZGC]|r Diag saved. Type /reload, then check SavedVariables.")
 
+    elseif msg == "sim" then
+        if ZGC_ToggleSimPanel then
+            ZGC_ToggleSimPanel()
+        else
+            print("|cff00aaff[ZGC]|r Sim panel module not loaded.")
+        end
+
+    elseif msg == "simdiag" then
+        if ZGC_SimDiag then
+            ZGC_SimDiag()
+        else
+            print("|cff00aaff[ZGC]|r Sim panel module not loaded.")
+        end
+
     elseif msg == "config" or msg == "settings" or msg == "options" then
         Settings.OpenToCategory(ADDON_NAME)
 
@@ -740,6 +710,7 @@ SlashCmdList["ZINAGEARCOMPARE"] = function(msg)
         print("  /zgc mode auto      — auto-detect content type")
         print("  /zgc mode dungeon   — force M+ / AoE mode")
         print("  /zgc mode raid      — force Raid / ST mode")
+        print("  /zgc sim            — toggle Sim Performance panel")
         print("  /zgc raidbots       — show Raidbots import status")
         print("  /zgc config         — open settings panel")
         print("  /zgc debug          — full diagnostic")

@@ -12,3 +12,12 @@ Thumbs.db
 
 # Packager output
 .release/
+package.bat
+ZinaGearCompare-*.zip
+
+# Dev-only tools (not needed by users)
+tools/simc_output/
+tools/simc_to_lua.py
+tools/run_simc_all.bat
+tools/patch_pawn.py
+tools/*.simc

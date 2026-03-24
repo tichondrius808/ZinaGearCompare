@@ -1,41 +1,66 @@
 # ZinaGearCompare
 
-A World of Warcraft addon that compares gear quality between players using **built-in SimulationCraft-derived stat weights**. No external dependencies required.
+A World of Warcraft addon that compares gear quality between players using **built-in SimulationCraft-derived stat weights** and integrates **Raidbots Top Gear** sim data directly into item tooltips.
 
 ## Features
 
+- **Raidbots Top Gear integration** — import your sim results and see per-item DPS deltas in item tooltips (both ST and AoE). BIS items glow green in your bags.
+- **Sim Performance panel** — small floating panel showing your actual DPS vs sim DPS as a percentage bar. Uses Blizzard's native Damage Meter (12.0+) or Details! as fallback. Navigate between combat segments with `<` `>` buttons.
 - **Gear score in your character sheet** — displayed at the bottom of the Character frame.
-- **Tooltip integration** — shows your gear score when hovering over your own portrait.
-- **Inspect panel** — adds a "Gear Quality" section to the Inspect frame showing:
-  - The inspected player's weighted gear score.
-  - A colour-coded comparison (green ≥ 95%, yellow ≥ 80%, red < 80%) vs. your own gear.
-  - The spec name and number of equipped slots scored.
-- **Mouseover tooltips** — automatically inspects players you hover over and displays their score alongside a **Skill Parity** indicator: the percentage of their damage you need to match in order to be equally skilled given the gear difference.
-- **`/zgc compare`** — condensed chat printout (3–4 lines) comparing your gear against a targeted player, with optional **Details!** DPS integration.
+- **Inspect panel** — adds a "Gear Quality" section to the Inspect frame with colour-coded comparison.
+- **Mouseover tooltips** — inspects players on hover, shows ilvl comparison and **Skill Parity** indicator.
+- **`/zgc compare`** — chat comparison with optional Details!/native meter DPS integration.
 - Supports all 13 WoW classes, separated M+/Raid weights, and Tier Set score bonuses.
 
 ## Requirements
 
 - WoW Retail Midnight 12.0.1+.
 - No addon dependencies. Pawn is **not** required.
+- **Python 3.8+** required only for the Raidbots import tool (one-time setup).
 
 ## Installation
 
-### Via CurseForge App (recommended)
-Search for **ZinaGearCompare** in the CurseForge App and click Install.
+### Sharing with a friend (zip)
 
-### Manual
-1. Download the latest release from CurseForge or [GitHub Releases](../../releases).
-2. Extract the `ZinaGearCompare` folder into `<WoW>/_retail_/Interface/AddOns/`.
-3. Restart WoW or reload the UI (`/reload`).
+1. Extract the `ZinaGearCompare` folder into `<WoW>/_retail_/Interface/AddOns/`.
+2. `/reload` in game — the addon works immediately (gear scores, tooltips, etc.).
+3. To enable Raidbots data in tooltips, see **Importing Your Sim Data** below.
+
+### Manual (from GitHub)
+
+1. Download the latest release from [GitHub Releases](../../releases).
+2. Extract into `<WoW>/_retail_/Interface/AddOns/`.
+3. Restart WoW or `/reload`.
+
+## Importing Your Sim Data
+
+This is what gives you per-item DPS deltas in tooltips and the Sim Performance panel.
+
+1. Run your **Top Gear** sim on [raidbots.com](https://www.raidbots.com).
+2. Copy the report URL (e.g. `https://www.raidbots.com/simbot/report/abc123`).
+3. Double-click `tools\raidbots_import.bat` inside the addon folder.
+4. Paste the URL when prompted — the script auto-detects ST vs AoE.
+5. `/reload` in game.
+
+Repeat for both ST and AoE if you want both lines in tooltips:
+- Run a **Patchwerk** sim → imports as ST (Raid).
+- Run a **DungeonSlice** sim → imports as AoE (M+).
+
+> **Note:** Python 3.8+ must be installed and available as `py` in your PATH.
+> Download from [python.org](https://www.python.org/downloads/) — check "Add to PATH" during install.
 
 ## Slash Commands
 
 | Command | Description |
 |---|---|
-| `/zgc compare` | Compare your gear against the currently selected player (prints to chat). |
+| `/zgc sim` | Toggle the Sim Performance panel (actual DPS vs sim DPS). |
+| `/zgc compare` | Compare your gear against your target (prints to chat). |
 | `/zgc score` | Show your current gear score. |
-| `/zgc debug` | Print diagnostic information (spec, weights, slots scored, etc.). |
+| `/zgc mode auto\|dungeon\|raid` | Force content mode or auto-detect. |
+| `/zgc raidbots` | Show Raidbots import status. |
+| `/zgc config` | Open settings panel. |
+| `/zgc simdiag` | Diagnostic for Sim Performance panel. |
+| `/zgc debug` | Full diagnostic (spec, weights, slots). |
 | `/zgc reset` | Reset the addon saved data. |
 
 ## Skill Parity
@@ -46,21 +71,13 @@ The skill parity formula answers: *"What percentage of their damage do I need to
 parity% = (1 / gearRatio)^1.2 × 100
 ```
 
-- **< 100%** — they have better gear; you need to outperform them proportionally to compensate.
+- **< 100%** — they have better gear; you need to outperform proportionally.
 - **= 100%** — equivalent gear; any difference is pure skill.
 - **> 100%** — you have better gear; you should naturally out-DPS them.
 
-Example: they have 20% more gear (gearRatio = 1.2) → you need to deal ≥ 85.1% of their damage to be considered equally skilled.
-
-## Optional: Details! Integration
-
-When both you and your target appear in a recent Details! combat segment, `/zgc compare` will show your actual DPS ratio vs. the gear-predicted ratio, indicating whether you are over- or under-performing relative to the gear difference.
-
 ## Stat Weights
 
-Weights are stored in `ZinaStatWeights.lua` and sourced from **SimulationCraft** (profiles MID1, Midnight Season 1). 20 specs have real SimC data (Patchwerk for Raid, DungeonSlice for M+). The remaining specs without MID1 profiles use curated estimates based on class Discord guides.
-
-See [`tools/README.md`](tools/README.md) for instructions on regenerating weights after a new patch.
+Weights in `ZinaStatWeights.lua` are sourced from **SimulationCraft** (MID1 profiles, Midnight Season 1). 20+ specs have real SimC data. The rest use curated estimates.
 
 ## License
 

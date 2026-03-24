@@ -218,6 +218,9 @@ def compute_item_dps(combos, dps_results):
 
     best_combo_dps = max(dps_results.values())
 
+    # Find which combo is the best, to identify BIS items
+    best_combo_name = max(dps_results, key=dps_results.get)
+
     slot_items = defaultdict(lambda: defaultdict(list))
     item_meta = {}
 
@@ -237,32 +240,48 @@ def compute_item_dps(combos, dps_results):
                     "slot": slot,
                 }
 
+    # Identify which items are in the best combo → those are BIS
+    best_combo_items = {}  # slot → item_id
+    if best_combo_name in combos:
+        for slot, item in combos[best_combo_name].items():
+            if item["id"] != 0:
+                best_combo_items[slot] = item["id"]
+
     items = {}
     best_by_slot = {}
 
     for slot, id_map in slot_items.items():
         if len(id_map) <= 1:
+            # Single item in slot — it's the only option, so it's BIS by default
             for item_id, dps_list in id_map.items():
-                avg = sum(dps_list) / len(dps_list)
-                items[item_id] = {**item_meta[item_id], "avgDPS": avg,
-                                  "appearances": len(dps_list), "fixed": True}
+                best = max(dps_list)
+                items[item_id] = {**item_meta[item_id], "bestDPS": best,
+                                  "appearances": len(dps_list), "fixed": False,
+                                  "delta": 0}
+                best_by_slot[slot] = (item_id, best)
             continue
 
+        # Use max DPS (best combo containing this item), not average
         slot_best_id = None
-        slot_best_avg = -1
+        slot_best_dps = -1
 
         for item_id, dps_list in id_map.items():
-            avg = sum(dps_list) / len(dps_list)
-            items[item_id] = {**item_meta[item_id], "avgDPS": avg,
+            best = max(dps_list)
+            items[item_id] = {**item_meta[item_id], "bestDPS": best,
                               "appearances": len(dps_list), "fixed": False}
-            if avg > slot_best_avg:
-                slot_best_avg = avg
+            if best > slot_best_dps:
+                slot_best_dps = best
                 slot_best_id = item_id
 
-        best_by_slot[slot] = (slot_best_id, slot_best_avg)
+        # If we know which item is in the best combo, use that as BIS
+        if slot in best_combo_items and best_combo_items[slot] in id_map:
+            slot_best_id = best_combo_items[slot]
+            slot_best_dps = items[slot_best_id]["bestDPS"]
+
+        best_by_slot[slot] = (slot_best_id, slot_best_dps)
 
         for item_id in id_map:
-            items[item_id]["delta"] = items[item_id]["avgDPS"] - slot_best_avg
+            items[item_id]["delta"] = items[item_id]["bestDPS"] - slot_best_dps
 
     return items, best_by_slot, best_combo_dps, current_gear_dps
 
@@ -271,14 +290,81 @@ def lua_escape(s):
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def parse_existing_lua(lua_text, sim_type):
+    """Parse existing items and bestBySlot from the Lua file for a given sim type."""
+    pattern = rf'ZGC_RaidbotsData\["{sim_type}"\]\s*=\s*\{{(.*?)\n\}}'
+    m = re.search(pattern, lua_text, re.DOTALL)
+    if not m:
+        return {}, {}
+
+    block = m.group(1)
+    existing_items = {}
+    existing_best = {}
+
+    # Parse items: [12345] = { name="...", ilvl=250, slot="...", bestDPS=1234.5, delta=-10.0, n=24 },
+    for im in re.finditer(
+        r'\[(\d+)\]\s*=\s*\{\s*'
+        r'name="([^"]*)",\s*'
+        r'ilvl=(\d+),\s*'
+        r'slot="([^"]*)",\s*'
+        r'bestDPS=([\d.]+),\s*'
+        r'delta=([-\d.]+),\s*'
+        r'n=(\d+)\s*\}', block
+    ):
+        item_id = int(im.group(1))
+        existing_items[item_id] = {
+            "name": im.group(2),
+            "ilvl": int(im.group(3)),
+            "slot": im.group(4),
+            "bestDPS": float(im.group(5)),
+            "delta": float(im.group(6)),
+            "appearances": int(im.group(7)),
+        }
+
+    # Parse bestBySlot: ["slot"] = { id=12345, name="...", bestDPS=1234.5 },
+    for bm in re.finditer(
+        r'\["([^"]+)"\]\s*=\s*\{\s*'
+        r'id=(\d+),\s*'
+        r'name="([^"]*)",\s*'
+        r'bestDPS=([\d.]+)\s*\}', block
+    ):
+        existing_best[bm.group(1)] = (int(bm.group(2)), float(bm.group(4)))
+
+    return existing_items, existing_best
+
+
 def generate_lua(items, best_by_slot, char_info, best_combo_dps, current_gear_dps,
                  sim_type, fight_style, spec_id, spec_name, report_id):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    existing_other = None
+    existing_text = None
     other_type = "aoe" if sim_type == "st" else "st"
     if LUA_OUT.exists():
-        existing_other = LUA_OUT.read_text(encoding="utf-8")
+        existing_text = LUA_OUT.read_text(encoding="utf-8")
+
+    # --- Merge with existing data for the SAME sim type ---
+    # Determine which slots the new sim touches
+    new_slots = set()
+    for item_id, info in items.items():
+        if not info.get("fixed"):
+            new_slots.add(info["slot"])
+
+    merged_count = 0
+    if existing_text:
+        old_items, old_best = parse_existing_lua(existing_text, sim_type)
+        if old_items:
+            # Keep old items whose slot is NOT touched by the new sim
+            for old_id, old_info in old_items.items():
+                if old_info["slot"] not in new_slots and old_id not in items:
+                    items[old_id] = old_info
+                    merged_count += 1
+            # Keep old bestBySlot for untouched slots
+            for old_slot, old_val in old_best.items():
+                if old_slot not in new_slots and old_slot not in best_by_slot:
+                    best_by_slot[old_slot] = old_val
+
+    if merged_count:
+        print(f"  Merged {merged_count} existing items from untouched slots")
 
     lines = []
     lines.append("-- ZinaRaidbotsData.lua — ZinaGearCompare")
@@ -307,15 +393,13 @@ def generate_lua(items, best_by_slot, char_info, best_combo_dps, current_gear_dp
     lines.append("    items = {")
     for item_id in sorted(items.keys()):
         info = items[item_id]
-        if info.get("fixed"):
-            continue
         delta = info.get("delta", 0)
         lines.append(
             f'        [{item_id}] = {{ '
             f'name="{lua_escape(info["name"])}", '
             f'ilvl={info["ilvl"]}, '
             f'slot="{info["slot"]}", '
-            f'avgDPS={info["avgDPS"]:.1f}, '
+            f'bestDPS={info["bestDPS"]:.1f}, '
             f'delta={delta:.1f}, '
             f'n={info["appearances"]} '
             f'}},'
@@ -325,20 +409,20 @@ def generate_lua(items, best_by_slot, char_info, best_combo_dps, current_gear_dp
 
     lines.append("    bestBySlot = {")
     for slot in sorted(best_by_slot.keys()):
-        best_id, best_avg = best_by_slot[slot]
-        best_name = items[best_id]["name"]
+        best_id, best_dps = best_by_slot[slot]
+        best_name = items[best_id]["name"] if best_id in items else "Unknown"
         lines.append(
             f'        ["{slot}"] = {{ id={best_id}, '
             f'name="{lua_escape(best_name)}", '
-            f'avgDPS={best_avg:.1f} }},'
+            f'bestDPS={best_dps:.1f} }},'
         )
     lines.append("    },")
     lines.append("}")
     lines.append("")
 
-    if existing_other:
+    if existing_text:
         pattern = rf'ZGC_RaidbotsData\["{other_type}"\]\s*=\s*\{{.*?\n\}}'
-        m = re.search(pattern, existing_other, re.DOTALL)
+        m = re.search(pattern, existing_text, re.DOTALL)
         if m:
             lines.append(m.group(0))
             lines.append("")
@@ -420,8 +504,10 @@ def main():
 
     print("Computing per-item DPS ...")
     items, best_by_slot, best_combo_dps, current_gear_dps = compute_item_dps(combos, dps_results)
-    varying = {k: v for k, v in items.items() if not v.get("fixed")}
-    print(f"  Varying items: {len(varying)} across {len(best_by_slot)} slots")
+    compared = {k: v for k, v in items.items() if v.get("appearances", 0) > 0}
+    solo_slots = sum(1 for s, ids in {i["slot"]: True for i in items.values()}.items()
+                     if sum(1 for it in items.values() if it["slot"] == s) == 1)
+    print(f"  Total items: {len(compared)} across {len(best_by_slot)} slots ({solo_slots} slots with single item)")
     print()
     print(f"  Best combo DPS:    {best_combo_dps:,.0f}  (shown on Raidbots page)")
     print(f"  Current gear DPS:  {current_gear_dps:,.0f}  (your equipped gear)")
@@ -433,7 +519,7 @@ def main():
     print(f"  {'SLOT':<12} {'ITEM':<30} {'iLvl':>5} {'DELTA':>10}")
     print("-" * 65)
     for slot in sorted(best_by_slot.keys()):
-        slot_items_list = [(iid, info) for iid, info in varying.items() if info["slot"] == slot]
+        slot_items_list = [(iid, info) for iid, info in items.items() if info["slot"] == slot and not info.get("fixed")]
         slot_items_list.sort(key=lambda x: x[1].get("delta", 0), reverse=True)
         for iid, info in slot_items_list:
             delta = info.get("delta", 0)

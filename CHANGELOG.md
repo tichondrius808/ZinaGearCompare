@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-03-24
+
+### Added
+- **Sim Performance Panel** (`ZinaSimPanel.lua`) — small floating panel showing
+  actual DPS vs sim DPS as a percentage bar (like Details!/Recount meter bars).
+  - Reads sim DPS from imported Raidbots data (`ZGC_RaidbotsData`).
+  - Reads actual DPS from **Blizzard's native Damage Meter** (`C_DamageMeter` API,
+    12.0+) with automatic fallback to **Details!** addon if native meter unavailable.
+  - Color-coded bar: red < 70%, yellow 70-90%, green > 90% of sim DPS.
+  - Segment navigation with `<` `>` buttons — cycle through Overall, Current, and
+    individual saved combat sessions from the native meter.
+  - Auto-refreshes on `DAMAGE_METER_COMBAT_SESSION_UPDATED` events.
+  - Draggable, resizable (bottom-right grip), position and size persisted.
+  - Toggle via `/zgc sim` or checkbox in Settings panel.
+  - Diagnostic command `/zgc simdiag` for troubleshooting.
+- Settings panel: "Show Sim Performance panel" checkbox.
+- Minimap tooltip: `/zgc sim` hint.
+
+### Fixed
+- **Appearance settings not persisting after relog** — `Settings.RegisterCanvasLayout*`
+  was overwriting our `OnShow` handler. Changed to `HookScript("OnShow", ...)` and
+  also set initial checkbox state at frame creation time.
+- **AoE tooltip line missing with M+ mode** — caused by the above bug toggling
+  `showTooltipAoE` to `false` when user clicked an already-unchecked checkbox.
+
 ## [2.4.0] - 2026-03-23
 
 ### Fixed
